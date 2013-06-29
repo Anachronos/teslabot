@@ -42,7 +42,6 @@ class Channel(object):
     def __getitem__(self, nick):
         for i, item in enumerate(self._users):
             if item[0].nick == nick:
-                print id(self._users[i][0])
                 return self._users[i][0]
             
     def get(self, nick):
@@ -100,7 +99,6 @@ class ChannelList(object):
     def __getitem__(self, name):
         """Returns the unique Channel object of a given channel name."""
         for i, item in enumerate(self._channels):
-            self.logger.warning(item.name)
             if item.name == name:
                 return self._channels[i]
         raise KeyError
@@ -144,7 +142,6 @@ class ChannelList(object):
         for nick in nicks:
             if nick[0] in self._prefixes:
                 user = self._users[nick[1:]]
-                print nick[1:]
                 self.__getitem__(chan).add(user, self._flags[nick[0]])
             else:
                 user = self._users[nick]
