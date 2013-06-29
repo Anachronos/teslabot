@@ -1,0 +1,22 @@
+[teslabot]
+host = server.ip.or.domain
+
+port = 6667
+
+nick = Teslabot
+
+realname = Teslabot
+
+password =
+
+reconnect = False
+
+ssl = False
+
+channels = #test #test2
+
+trigger = .
+
+admins = yournick
+
+plugins = Statistics CoreCommands WebTools

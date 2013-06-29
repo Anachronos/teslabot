@@ -1,0 +1,10 @@
+Since every IRC message has an origin (or source), the IRC class will attribute a unique User object to every message it receives. This User object will created if it doesn't already exists. Any subsequent message from an identical source will retrieve the same User object, allowing any class that has access to UserList to retrieve every information available by the User object.
+
+src: A string containing the source of a message present at the beginning of a message. It has the format: [nickname]![realname]@[hostname] or [hostname] (when the source is the server itself).
+
+chan: A string containing the name of a channel
+channel: A Channel class instance
+channels: A ChannelList class instance
+
+nick: A string containing the nickname of a user
+user: A Use class instance

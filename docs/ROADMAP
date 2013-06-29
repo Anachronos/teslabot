@@ -1,0 +1,12 @@
+Roadmap
+-------
+* Inter-plugin communication
+* DCC subprotocols support
+* Omegle plugin
+* Python 3 support
+* Permissions plugin
+* Add an option where plugins can choose whether to be threaded or not.
+* Consider adding some sort of hook functionality whereby plugins can run in the same thread as the IRC
+* Plugin Queue throttling
+* Support every IRC protocol message
+* Support every IRC reply numeric
