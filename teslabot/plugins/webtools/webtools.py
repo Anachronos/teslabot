@@ -135,9 +135,13 @@ class WebTools(PluginBase):
             start = '<div class="definition">'
             end = '</div>'
             
-            text = req.text.split(start, 1)[1].split(end, 1)[0]
+            try:
+                text = req.text.split(start, 1)[1].split(end, 1)[0]
+            except IndexError:
+                self.irch.say('\x038[UrbanDictionary]\x03 Definition not found.', dst)
+                return
             
-            self.irch.say('\x038[UrbanDictionary]\x03 \x02{0}\x02: {1}'.format(phrase, self.format_text(text)), dst)
+            self.irch.say(u'\x038[UrbanDictionary]\x03 \x02{0}\x02: {1}'.format(phrase, self.format_text(text)), dst)
         elif source == 'd':
             html = requests.get('http://www.wordnik.com/words/{0}'.format(phrase)).text
             soup = BeautifulSoup(html)
@@ -167,7 +171,7 @@ class WebTools(PluginBase):
                             reply.append(defin)
                         else:
                             defin =  u''.join(i.findAll(text=True)[1:])
-                            reply.append('\x038{0}\x03.{1}'.format(wtype, defin))
+                            reply.append(u'\x038{0}\x03.{1}'.format(wtype, defin))
                         type_count[wtype] = 1
                 
                 self.irch.say(u'\x038[Dictionary] \x03\x02{0}\x02: {1}'.format(phrase, u' \x02\x0311|\x03\x02 '.join(reply)), dst)

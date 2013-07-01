@@ -8,8 +8,8 @@ class IRCClient(IRC):
     """IRCClient inherits the IRC core and expands it into a multi-threaded IRC
     client with dynamic plugins.
     
-    Plugins share the same IRCClient object and can call *some* public
-    methods in a thread safe manner.
+    Plugins share an identical IRCClient object. Public methods can be called by plugins.
+    TODO: Ensure that public methods are thread-safe.
     """
     def __init__(self, nick, realname, channels, admin, trigger, plugins,
                   password = False, _ssl = False, reconnect = False):
@@ -25,20 +25,19 @@ class IRCClient(IRC):
         # A plugin will not be able to listen to an event that is not
         # defined in the dictionary.
         self._plugin_callbacks = {
-                                  'on_connect': [],
-                                  'on_quit': [],
-                                  'on_quit': [],
-                                  'on_whois': [],
-                                  'on_channel_message': [],
-                                  'on_chat_command': [],
-                                  'on_channel_join': [],
-                                  'on_channel_part': [],
-                                  'on_private_message': [],
-                                  
-                                  # Plugin specific events
-                                  'on_exit': [],
-                                  'on_load': [],
-                                  }
+            'on_connect': [],
+            'on_quit': [],
+            'on_quit': [],
+            'on_whois': [],
+            'on_channel_message': [],
+            'on_chat_command': [],
+            'on_channel_join': [],
+            'on_channel_part': [],
+            'on_private_message': [],
+            # Plugin specific events
+            'on_exit': [],
+            'on_load': [],
+            }
         self._plugin_threads = {}
         self._plugin_objects = []
         
@@ -212,7 +211,9 @@ class IRCClient(IRC):
         pass
 
     def on_channel_mode(self, user, channel, modes, args = None):
-        self.logger.info('[{0}] {1} sets mode: {2} {3}'.format(channel, user, modes, args))
+        IRC.on_channel_mode(self, user, channel, modes, args)
+        self.logger.info('[{0}] {1} sets mode: {2} {3}'.format(channel.name, user.nick, 
+                                                               modes, (args if args else '')))
 
     def on_channel_join(self, user, channel):
         IRC.on_channel_join(self, user, channel)

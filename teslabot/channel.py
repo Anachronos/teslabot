@@ -58,28 +58,14 @@ class Channel(object):
             if item[0].nick == user.nick:
                 self._users.pop(i)
                 self._size += 1
-        
-    def is_oper(self, user):
-        """Returns whether or not a given user has oper privileges."""
-        for x in self._users:
-            if x[0] is user and x[1] > 1:
-                return True
-        return False
-    
-    def is_owner(self, user):
-        """Returns whether or not the user has owner (+q) privileges."""
-        for x in self._users:
-            if x[0] is user and x[1] == 5:
-                return True
-        return False
+
 
 class ChannelList(object):
     """Stores a list of all currently joined channels and handles channel events."""
     def __init__(self, users):
         self._channels = []
         self.logger = logging.getLogger('teslabot.irc.channelist')
-        self._flags = {'+': 1, '@': 2, '%': 3, '&': 4, '~': 5}
-        self._prefixes = ['+', '@', '%', '&', '~']
+        self._flags = {'+': 'v', '@': 'o', '%': 'h', '&': 'a', '~': 'q'}
         self._users = users
 
         self._i = 0
@@ -102,6 +88,19 @@ class ChannelList(object):
             if item.name == name:
                 return self._channels[i]
         raise KeyError
+
+    def get(self, chan):
+        """Returns a channel object. If it doesn't exist, create it.
+        
+        Arguments:
+            chan: A channel name
+        """
+        channel = self.__getitem__(chan)
+        if channel:
+            return channel
+        else:
+            channel = self.add(chan)
+            return channel
     
     def __str__(self):
         return str(self._channels)
@@ -140,9 +139,10 @@ class ChannelList(object):
         nicks.pop() # Pop empty string
         
         for nick in nicks:
-            if nick[0] in self._prefixes:
+            if nick[0] in self._flags:
                 user = self._users[nick[1:]]
-                self.__getitem__(chan).add(user, self._flags[nick[0]])
+                user.modes.add(chan, self._flags[nick[0]])
+                self.__getitem__(chan).add(user)
             else:
                 user = self._users[nick]
-                self.__getitem__(chan).add(user, 0)
+                self.__getitem__(chan).add(user)

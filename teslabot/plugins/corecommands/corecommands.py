@@ -120,24 +120,24 @@ class CoreCommands(PluginBase):
             
     def command_ban(self, user, dst, args):
         """Syntax: {0}ban <user>"""
-        if self.irch.channels[dst].is_oper(user) or user.admin:
+        if user.modes.is_owner(dst) or user.admin:
             if self.irch.channels[dst].is_oper(user):
-                self.irch.mode('+b', args, dst)
+                self.irch.mode(dst, '+b', args)
         else:
             raise self.InvalidPermission
         
     def command_unban(self, user, dst, args):
         """Syntax: {0}unban <user>"""
-        if self.irch.channels[dst].is_oper(user) or user.admin:
+        if user.modes.is_owner(dst) or user.admin:
             if self.irch.channels[dst].is_oper(user):
-                self.irch.mode('-b', args, dst)
+                self.irch.mode(dst, '-b', args)
         else:
             raise self.InvalidPermission
                 
     def command_kick(self, user, dst, args):
         """Kicks a given user.
         Syntax: {0}kick <user> <reason>"""
-        if self.irch.channels[dst].is_oper(user) or user.admin:
+        if user.modes.is_owner(dst) or user.admin:
                 num = len(args.split())
                 if num > 1:
                     nick, reason = args.split(' ', 1)
@@ -154,7 +154,7 @@ class CoreCommands(PluginBase):
     def command_kickban(self, user, dst, args):
         """Kicks and bans a given user.
         Syntax: {0}kickban <user> [reason] [duration]"""
-        if self.irch.channels[dst].is_oper(user) or user.admin:
+        if user.modes.is_owner(dst) or user.admin:
             num = len(args.split())
             if num > 1:
                 nick, reason = args.split(' ', 1)
@@ -164,32 +164,31 @@ class CoreCommands(PluginBase):
             else:
                 raise self.InvalidSyntax
             
-            self.irch.mode('+b', nick, dst)
+            self.irch.mode(dst, '+b', nick)
             self.irch.kick(nick, dst, reason)
         else:
             raise self.InvalidPermission
             
     def command_deop(self, user, dst, args):
-        if self.irch.channels[dst].is_oper(user) or user.admin:
+        if user.modes.is_owner(dst) or user.admin:
             num = len(args.split())
             if num == 1:
                 nick = args
             else:
                 raise self.InvalidSyntax
             
-            self.irch.mode('-o', nick, dst)
+            self.irch.mode(dst, '-o', nick)
         else:
             raise self.InvalidPermission
         
     def command_op(self, user, dst, args):
-        if self.irch.channels[dst].is_oper(user) or user.admin:
+        if user.modes.is_owner(dst) or user.admin:
             num = len(args.split())
             if num == 1:
                 nick = args
             else:
                 raise self.InvalidSyntax
             
-            self.irch.mode('+o', nick, dst)
+            self.irch.mode(dst, '+o', nick)
         else:
             raise self.InvalidPermission
-            

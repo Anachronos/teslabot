@@ -7,10 +7,9 @@ import sys
 import time
 import logging
 import ssl
-import select
 import errno
 
-__version__ = '1.0a'                
+__version__ = '1.0a'
         
 class IRC(object):
     """
@@ -29,7 +28,7 @@ class IRC(object):
         _buffer: A socket buffer string
     """
     def __init__(self, nick, realname, channels, admins, _ssl = False, reconnect = False, password = False):
-        self.user = User(nick, realname)
+        self.user = User(nick=nick, real=realname)
         self.users = UserList()
         self.channels = ChannelList(self.users)
         
@@ -48,8 +47,8 @@ class IRC(object):
         self.alive = 1
         
         # Define users with administrator privileges
-        for src in admins:
-            user = User(src, admin=True)
+        for admin in admins:
+            user = User(src=admin, admin=True)
             self.users.append(user)
 
     def run(self):
@@ -99,12 +98,19 @@ class IRC(object):
                     self.logger.info('>{0}< {1}'.format(nick, line[:maxlen-1]))
                     self.notice(line, line[maxlen-1:])
             
-    def mode(self, modes, args, channel = False):
-        msg = 'MODE {0} {1} {2}'
-        if channel:
-            self.send(msg.format(channel, modes, args))
-        else:
-            self.send(msg.format(self.user.nick, modes, args))
+    def mode(self, target, modes = False, args = False):
+        """Sends a MODE command.
+        Args:
+            target: A channel or nick string
+            modes: A string of flags
+            args: An argument string
+        """
+        if not modes:
+            self.send('MODE {0}'.format(target))
+        elif modes and not args:
+            self.send('MODE {0} {1}'.format(target, modes))
+        elif modes and args:
+            self.send('MODE {0} {1} {2}'.format(target, modes, args))
             
     def kick(self, nick, chan, reason = ''):
         self.send(u'KICK {0} {1} :{2}'.format(chan, nick, reason))
@@ -136,7 +142,6 @@ class IRC(object):
             _msg_time: a list of UNIX time values, whose index represents the number of messages.
             Although in practice, the difference between each index is the only relevant fact.
             As a result, we "pop" values from the beginning of the list that are no longer needed.
-            
         """
         self._msg_time.append(time.time())
         throttle = False
@@ -187,8 +192,6 @@ class IRC(object):
 
     def leave(self, chan, reason = 'Leaving'):
         self.send('PART {0} :{1}'.format(chan, reason))
-        self.channels.remove(chan)
-        self.logger.info('Left channel {0} ({1}).'.format(chan, reason))
 
     def say(self, msg, dst):
         msg = msg.split('\r\n')
@@ -213,6 +216,12 @@ class IRC(object):
     def whois(self, nick):
         self.send('WHOIS {0}'.format(nick))
 
+    def is_chan(self, chan):
+        """Returns true if a given string is a valid channel name."""
+        if chan[:1] in ('&', '#', '+', '!'):
+            return True
+        return False
+
     def _on_privmsg(self, user, args):
         """Calls the appropriate handler for a given PRIVMSG type.
         Either channel, private, or CTCP message.
@@ -236,12 +245,15 @@ class IRC(object):
             self.on_ctcp(user, cmd, subargs)
         
         # Channel message
-        if dst[:1] == '#':
+        if self.is_chan(dst[:1]):
             self.on_channel_message(user, dst, msg[1:])
 
         # Private query
         elif dst.lower() == self.user.nick.lower():
             self.on_private_message(user, msg[1:])
+
+        else:
+            self.logger.warning("Unrecognized PRIVMSG format.")
 
     def quit(self, msg = 'Quitting', force = None):
         try:
@@ -305,6 +317,18 @@ class IRC(object):
 
         if cmd == 'PRIVMSG':
             self._on_privmsg(user, args)
+
+        if cmd == 'MODE':
+            args = args.split()
+            subargs = False
+
+            if self.is_chan(args[0]):
+                if len(args) == 3:
+                    subargs = args.pop()
+
+                chan, modes = args
+                channel = self.channels.get(chan)
+                self.on_channel_mode(user, channel, modes, subargs)
             
         elif cmd == 'NOTICE':
             self.on_notice(user, args)
@@ -335,7 +359,6 @@ class IRC(object):
                 self.on_channel_part(user, self.channels[chan], reason[1:])
             else:
                 chan = args.split()[0]
-                self.logger.warning('CHANNEL NAME: ' + chan)
                 self.on_channel_part(user, self.channels[chan])
 
         elif cmd == RPL_WELCOME:
@@ -406,22 +429,34 @@ class IRC(object):
         for channel in self._init_channels:
             self.join(channel)
 
-    def on_channel_mode(self, user, channel, modes, args = None):
-        raise NotImplementedError
+    def on_channel_mode(self, user, channel, modes, args = False):
+        """Called when a channel mode is changed.
+
+        TODO: Recognize channel modes that aren't specific to users.
+              Recognize up to 3 channel modes at the same time.
+        """
+        if modes[0] == '+':
+            if len(modes[1:]) == 1:
+                user.modes.add(channel.name, modes[1:])
+        elif modes[0] == '-':
+            if len(modes[1:]) == 1:
+                user.modes.remove(channel.name, modes[1:])
 
     def on_channel_message(self, user, channel, msg):
         raise NotImplementedError
 
     def on_channel_join(self, user, channel):
-        """on_channel_join is called whenever the bot or a user joins a channel.
+        """on_channel_join is called when a user (including the bot) joins a channel.
         
         Args:
             channel: A Channel instance
             user: A user instance
         """
-        pass
+        # Requests channel modes
+        self.mode(channel.name)
 
     def on_channel_part(self, user, channel, reason):
+        """on_channel_part is called when a user (including the bot) leaves the channel."""
         if user.nick == self.user.nick:
             self.channels.remove(channel)
         else:
