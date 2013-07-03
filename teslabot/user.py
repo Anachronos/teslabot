@@ -123,7 +123,7 @@ class UserList(object):
         
     def __getitem__(self, nick):
         for i, item in enumerate(self._users):
-            if item.nick == nick:
+            if item.nick.lower() == nick.lower():
                 return self._users[i]
         user = User(nick=nick)
         self._users.append(user)
@@ -145,7 +145,7 @@ class UserList(object):
         user = User(src=src)
         
         for i, item in enumerate(self._users):    
-            if self._users[i].nick == user.nick:
+            if self._users[i].nick.lower() == user.nick.lower():
                 if self._users[i].host != user.host:
                     self._users[i].host = user.host
                     

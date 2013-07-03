@@ -28,8 +28,9 @@ class IRC(object):
         _buffer: A socket buffer string
     """
     def __init__(self, nick, realname, channels, admins, _ssl = False, reconnect = False, password = False):
-        self.user = User(nick=nick, real=realname)
         self.users = UserList()
+        self.user = User(nick=nick, real=realname)
+        self.users.append(self.user)
         self.channels = ChannelList(self.users)
         
         self.logger = logging.getLogger('teslabot.irc')
@@ -319,12 +320,12 @@ class IRC(object):
             self._on_privmsg(user, args)
 
         if cmd == 'MODE':
-            args = args.split()
+            args = args.split(' ', 2)
             subargs = False
 
             if self.is_chan(args[0]):
                 if len(args) == 3:
-                    subargs = args.pop()
+                    subargs = args.pop().split()
 
                 chan, modes = args
                 channel = self.channels.get(chan)
@@ -433,14 +434,19 @@ class IRC(object):
         """Called when a channel mode is changed.
 
         TODO: Recognize channel modes that aren't specific to users.
-              Recognize up to 3 channel modes at the same time.
+
+        Args:
+            args: A list of arguments
         """
-        if modes[0] == '+':
-            if len(modes[1:]) == 1:
-                user.modes.add(channel.name, modes[1:])
-        elif modes[0] == '-':
-            if len(modes[1:]) == 1:
-                user.modes.remove(channel.name, modes[1:])
+        for i, mode in enumerate(modes[1:]):
+            if mode in ('a', 'q', 'o', 'h', 'v'):
+                target = self.users.get(args[i])
+                print(target.nick)
+                if modes[0] == '+':
+                    target.modes.add(channel.name, mode)
+                else:
+                    target.modes.remove(channel.name, mode)
+                print(target.modes)
 
     def on_channel_message(self, user, channel, msg):
         raise NotImplementedError
