@@ -8,7 +8,7 @@ try:
     from BeautifulSoup import BeautifulSoup
 except ImportError:
     from bs4 import BeautifulSoup
-    
+import json
 
 class WebTools(PluginBase):
     """WebTools provides commands for quickly extracting information from websites such as
@@ -62,6 +62,8 @@ class WebTools(PluginBase):
         text = h.unescape(text)
         
         text = re.sub('<[^>]+?>', '', text)
+        text = text.replace('\r\n', ' ')
+        text = text.replace('\r', ' ')
         
         # Arbitrarily limit the message to 400 bytes to fit in one send.
         if len(text) > 400 and text.count('.') > 0:
@@ -122,61 +124,72 @@ class WebTools(PluginBase):
             
     def command_def(self, user, dst, args):
         """Syntax: {0}def [source] [word]
-        Available sources: u (urban dictionary), d (dictionary), w (wikipedia)
+        Available sources: u (urban dictionary), d (dictionary)
         """
         if len(args.split()) < 2:
             raise PluginBase.InvalidSyntax
         
         source, phrase = args.split(' ', 1)
         if source == 'u':
-            req = requests.get('http://www.urbandictionary.com/define.php?term={0}'.format(args.split(' ', 1)[1]))
-            req.encoding = 'utf-8'
-            
-            start = '<div class="definition">'
-            end = '</div>'
-            
-            try:
-                text = req.text.split(start, 1)[1].split(end, 1)[0]
-            except IndexError:
-                self.irch.say('\x038[UrbanDictionary]\x03 Definition not found.', dst)
-                return
-            
-            self.irch.say(u'\x038[UrbanDictionary]\x03 \x02{0}\x02: {1}'.format(phrase, self.format_text(text)), dst)
+            self.subcommand_def_urbdict(user, dst, phrase)
         elif source == 'd':
-            html = requests.get('http://www.wordnik.com/words/{0}'.format(phrase)).text
-            soup = BeautifulSoup(html)
+            self.subcommand_def_dict(user, dst, phrase)
+
+    def subcommand_def_dict(user, dst, args):
+        html = requests.get('http://www.wordnik.com/words/{0}'.format(phrase)).text
+        soup = BeautifulSoup(html)
             
-            reply = []
-            type_count = {'n': 0, 'v': 0, 'adj': 0, 'pro': 0, 'interj': 0, 'adv': 0, 'idiom': 0}
+        reply = []
+        type_count = {'n': 0, 'v': 0, 'adj': 0, 'pro': 0, 'interj': 0, 'adv': 0, 'idiom': 0}
             
-            ans = soup.find('ol', attrs={'class': 'definitions'})
-            if ans:
-                for i in ans:
-                    if i == '\n':
+        ans = soup.find('ol', attrs={'class': 'definitions'})
+        if ans:
+            for i in ans:
+                if i == '\n':
+                    continue
+                wtype = i.contents[0].find('abbr').string[:-1]
+                if wtype:
+                    if type_count[wtype] > 0:
                         continue
-                    wtype = i.contents[0].find('abbr').string[:-1]
-                    if wtype:
-                        if type_count[wtype] > 0:
-                            continue
-                        desc = i.contents[0].find('em')
-                        if desc:
-                            newdef = []
-                            lblock = i.contents[0].findAll(text=True)
-                            for x in lblock:
-                                if x != ' ':
-                                    newdef.append(x)
-                            defin = u' '.join([x.strip() for x in newdef])
-                            defin = defin.replace(desc.string, u'\x0312{0}\x03'.format(desc.string))
-                            defin = defin.replace(wtype, u'\x038{0}\x03'.format(wtype), 1)
-                            reply.append(defin)
-                        else:
-                            defin =  u''.join(i.findAll(text=True)[1:])
-                            reply.append(u'\x038{0}\x03.{1}'.format(wtype, defin))
-                        type_count[wtype] = 1
+                    desc = i.contents[0].find('em')
+                    if desc:
+                        newdef = []
+                        lblock = i.contents[0].findAll(text=True)
+                        for x in lblock:
+                            if x != ' ':
+                                newdef.append(x)
+                        defin = u' '.join([x.strip() for x in newdef])
+                        defin = defin.replace(desc.string, u'\x0312{0}\x03'.format(desc.string))
+                        defin = defin.replace(wtype, u'\x038{0}\x03'.format(wtype), 1)
+                        reply.append(defin)
+                    else:
+                        defin =  u''.join(i.findAll(text=True)[1:])
+                        reply.append(u'\x038{0}\x03.{1}'.format(wtype, defin))
+                    type_count[wtype] = 1
                 
-                self.irch.say(u'\x038[Dictionary] \x03\x02{0}\x02: {1}'.format(phrase, u' \x02\x0311|\x03\x02 '.join(reply)), dst)
-            else:
-                self.irch.say(u'Definition not for \x02{0}\x02 not found.'.format(phrase), dst)
+            self.irch.say(u'\x038[Dictionary] \x03\x02{0}\x02: {1}'.format(phrase, u' \x02\x0311|\x03\x02 '.join(reply)), dst)
+        else:
+            self.irch.say(u'Definition not for \x02{0}\x02 not found.'.format(phrase), dst)
+
+    def subcommand_def_u(self, user, dst, args):
+        r = requests.get(u'http://api.urbandictionary.com/v0/define?term={0}'.format(args))
+        r.encoding = 'utf-8'
+
+        decoded = json.loads(r.text)
+        ans = u'\x037[UrbDict]\x03 \x032{0}:\x03 {1} \x0308({2} up | {3} down)\x03'
+
+        if decoded.get('list'):
+            for item in decoded['list']:
+                definition = self.format_text(item['definition'])
+
+                ans = ans.format(item['word'], definition, item['thumbs_up'],
+                           item['thumbs_down'])
+                break
+
+        if decoded.get('result_type') == 'exact':
+            self.irch.say(ans, dst)
+        else:
+            self.irch.say('\x038[UrbanDictionary]\x03 Definition not found.', dst)
     
     def command_news(self, user, dst, args):
         """Displays random news headlines from US newspapers.
