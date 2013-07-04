@@ -171,7 +171,7 @@ class WebTools(PluginBase):
         else:
             self.irch.say(u'Definition not for \x02{0}\x02 not found.'.format(phrase), dst)
 
-    def subcommand_def_u(self, user, dst, args):
+    def subcommand_def_urbdict(self, user, dst, args):
         r = requests.get(u'http://api.urbandictionary.com/v0/define?term={0}'.format(args))
         r.encoding = 'utf-8'
 
