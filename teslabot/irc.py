@@ -247,7 +247,7 @@ class IRC(object):
         
         # Channel message
         if self.is_chan(dst[:1]):
-            self.on_channel_message(user, dst, msg[1:])
+            self.on_channel_message(user, self.channels.get(dst), msg[1:])
 
         # Private query
         elif dst.lower() == self.user.nick.lower():

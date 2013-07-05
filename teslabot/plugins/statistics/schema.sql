@@ -38,6 +38,7 @@ CREATE TABLE user (
 );
 
 CREATE TABLE user_statistics (
+	id INTEGER PRIMARY KEY,
 	cid INTEGER,
 	uid INTEGER,
 	word_count INTEGER,

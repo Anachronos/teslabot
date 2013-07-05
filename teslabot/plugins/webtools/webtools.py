@@ -135,7 +135,7 @@ class WebTools(PluginBase):
         elif source == 'd':
             self.subcommand_def_dict(user, dst, phrase)
 
-    def subcommand_def_dict(user, dst, args):
+    def subcommand_def_dict(self, user, dst, phrase):
         html = requests.get('http://www.wordnik.com/words/{0}'.format(phrase)).text
         soup = BeautifulSoup(html)
             
@@ -176,7 +176,7 @@ class WebTools(PluginBase):
         r.encoding = 'utf-8'
 
         decoded = json.loads(r.text)
-        ans = u'\x037[UrbDict]\x03 \x032{0}:\x03 {1} \x0308({2} up | {3} down)\x03'
+        ans = u'\x037[UrbDict]\x03 \x032{0}:\x03 {1} (\x0308{2}\x03\u2191\x0308{3}\x03\u2193)'
 
         if decoded.get('list'):
             for item in decoded['list']:

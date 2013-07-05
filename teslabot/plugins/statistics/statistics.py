@@ -46,50 +46,71 @@ class Statistics(PluginBase):
             except Exception as e:
                 self.logger.warning(e.message)
         
-    def update_counter(self, channel, count):
+    def update_counter(self, chan, count):
         """Records the number of online users in a given channel (timestamped)."""
         c = self.conn.cursor()
-        query = [self.get_channel_id(channel), count, int(time.time())]
-        c.execute("INSERT INTO channel_visit (cid, count, time) VALUES ({0}, {1}, {2})".format(*query))
+        params = (self.get_channel_id(chan), count, int(time.time()))
+        c.execute("INSERT INTO channel_visit (cid, count, time) VALUES (?, ?, ?)", params)
         self.conn.commit()
         
     def update_lastseen(self, user, channel):
         """Records when and where a user was last seen."""
         c = self.conn.cursor()
-        values = [self.get_channel_id(channel), int(time.time()), self.get_user_id(user.nick)]
+        params = (self.get_channel_id(channel), int(time.time()), self.get_user_id(user.nick))
         c.execute("UPDATE user " \
-                  "SET lastseen_cid = {0}, lastseen_time = {1} WHERE id = {2}".format(*values))
+                  "SET lastseen_cid = ?, lastseen_time = ? WHERE id = ?", params)
+        self.conn.commit()
+
+    def update_user_statistics(self, user, chan, msg):
+        """Updates fields of user_statistics. If they don't exist for a given user
+        and channel, create row."""
+        c = self.conn.cursor()
+        params = (self.get_channel_id(chan), self.get_user_id(user.nick))
+        c.execute('SELECT id FROM user_statistics ' \
+                  'WHERE cid = ? and uid = ?', params)
+
+        self.conn.commit()
+
+        params = (len(msg.split()), self.get_user_id(user.nick), self.get_channel_id(chan))
+
+        if not c.fetchone():
+            c.execute('INSERT INTO user_statistics (word_count, uid, cid, line_count) ' \
+                      'VALUES (?, ?, ?, 1)', params)
+        else:
+            c.execute('UPDATE user_statistics ' \
+                      'SET word_count = word_count+?, line_count = line_count+1 ' \
+                      'WHERE uid = ? AND cid = ?', params)
         self.conn.commit()
         
     def get_channel_id(self, name):
         """Retrieves the channel id from the database. If it's not present, it will create a new one."""
         c = self.conn.cursor()
         
-        c.execute("SELECT id FROM channel WHERE name = ? LIMIT 1", [(name)])
+        c.execute("SELECT id FROM channel WHERE name = ? LIMIT 1", (name,))
         self.conn.commit()
-        
+
         id = c.fetchone()
         
         if not id:
-            c.execute("INSERT INTO channel (name) VALUES (?)", [(name)])
+            c.execute("INSERT INTO channel (name) VALUES (?)", (name,))
             self.conn.commit()
             id = self.get_channel_id(name)
             return id
         else:
-            self.channels[id] = name
+            self.channels[id[0]] = name
             return id[0]
         
     def get_user_id(self, nick):
         """Retrieves the user's id. If not present, a new one will be created."""
         c = self.conn.cursor()
         
-        c.execute('SELECT id FROM user WHERE LOWER(nick) = ? LIMIT 1', [(nick.lower())])
+        c.execute('SELECT id FROM user WHERE LOWER(nick) = ? LIMIT 1', (nick.lower(),))
         self.conn.commit()
         
         id = c.fetchone()
         
         if not id:
-            c.execute('INSERT INTO user (nick) VALUES (?)', [(nick)])
+            c.execute('INSERT INTO user (nick) VALUES (?)', (nick.lower(),))
             self.conn.commit()
             id = self.get_user_id(nick)
             return id
@@ -111,27 +132,26 @@ class Statistics(PluginBase):
         
     def on_channel_message(self, user, channel, msg):
         """Calls methods that use channel message for their statistics."""
-        word_count = len(msg.split())
-        word_list = msg.split()
+        self.handle_wordlist(channel.name, msg.split())
+        self.update_user_statistics(user, channel.name, msg)
         
-        self.handle_wordlist(channel, word_list)
-        
-    def handle_wordlist(self, channel, word_list):
+    def handle_wordlist(self, chan, word_list):
         """Maintains a table of word frequencies for a given channel."""
         c = self.conn.cursor()
-        cid = self.get_channel_id(channel)
+        cid = self.get_channel_id(chan)
         
         for word in word_list:
             word = re.sub(r'\W+', '', word).lower().decode('utf-8')
             
-            c.execute(u'SELECT id FROM word_list WHERE cid = ? AND word = ?', [cid, word])
+            c.execute(u'SELECT id FROM word_list WHERE cid = ? AND word = ?', (cid, word))
             self.conn.commit()
+
             id = c.fetchone()
             
             if not id:
-                c.execute(u'INSERT INTO word_list (cid, word, count) VALUES (?, ?, ?)', [cid, word, 1])
+                c.execute(u'INSERT INTO word_list (cid, word, count) VALUES (?, ?, ?)', (cid, word, 1))
             else:
-                c.execute('UPDATE word_list SET count = count+1 WHERE id = ?', [id[0]])
+                c.execute('UPDATE word_list SET count = count+1 WHERE id = ?', (id[0],))
             self.conn.commit()
             
     def command_seen(self, user, dst, args):
@@ -145,7 +165,7 @@ class Statistics(PluginBase):
                 'FROM user INNER JOIN channel ' \
                 'WHERE user.lastseen_cid = channel.id AND LOWER(user.nick) = ? ' \
                 'LIMIT 1'
-        c.execute(query, [args.lower()])
+        c.execute(query, (args.lower(),))
         rows = c.fetchone()
         
         if rows:
@@ -156,7 +176,7 @@ class Statistics(PluginBase):
         
     def command_stats(self, user, dst, args):
         """Provides the top statistical information about users and channels.
-        Subcommands: words, peak
+        Subcommands: words, peak, user
         """
         if len(args.split()) < 2:
             raise self.InvalidSyntax
@@ -169,6 +189,56 @@ class Statistics(PluginBase):
             self.subcommand_stats_peak(user, dst, subargs)
         elif subcmd == 'reset':
             self.subcommand_stats_reset(user, dst, subargs)
+        elif subcmd == 'user':
+            self.subcommand_stats_user(user, dst, subargs)
+
+    def subcommand_stats_user(self, user, dst, args):
+        """Returns the stats of a given or top user.
+        Syntax: {0}stats user [get|top] [<user>|words|lines]
+        """
+        subargs = args.split()
+
+        if subargs[0] == 'get':
+            target = subargs[1]
+
+            c = self.conn.cursor()
+
+            values = (self.get_channel_id(dst), self.get_user_id(target))
+
+            c.execute('SELECT word_count, line_count ' \
+                      'FROM user_statistics ' \
+                      'WHERE cid = ? and uid = ?', values)
+            self.conn.commit()
+
+            for row in c.fetchall():
+                reply = '{0} has written {1} words and {2} lines of text.'
+                self.irch.say(reply.format(target, row[0], row[1]), dst)
+                return
+            self.irch.say('{0} not found.'.format(args), dst)
+        elif subargs[0] == 'top':
+            c = self.conn.cursor()
+
+            try:
+                type = subargs[1]
+            except IndexError:
+                raise self.InvalidSyntax
+
+            if type == 'line' or type == 'word':
+                values = (self.get_channel_id(dst),)
+                c.execute('SELECT user.nick, user_statistics.{0}_count ' \
+                          'FROM user INNER JOIN user_statistics ' \
+                          'WHERE user_statistics.cid = ? ' \
+                          'AND user.id = user_statistics.uid ' \
+                          'ORDER BY user_statistics.{0}_count DESC LIMIT 1'.format(type),
+                          values)
+                self.conn.commit()
+                
+                row = c.fetchone()
+                if row:
+                    res = '{0} has the most {1} count ({2}) on {3}.'
+                    self.irch.say(res.format(row[0], type, row[1], dst), dst)
+        else:
+            raise self.InvalidSyntax
             
     def subcommand_stats_peak(self, user, dst, args):
         """Returns the highest record of online users for a given channel.
@@ -224,10 +294,10 @@ class Statistics(PluginBase):
             
             if len(subargs) > 1:
                 c.execute('''SELECT word, count FROM word_list WHERE cid = ? 
-                AND length(word) > ? ORDER BY count DESC LIMIT 5''', [cid, int(subargs[1])])
+                AND length(word) > ? ORDER BY count DESC LIMIT 5''', (cid, int(subargs[1])))
             elif len(subargs) > 0:
                 c.execute('SELECT word, count FROM word_list WHERE cid = ? ' \
-                          'ORDER BY count DESC LIMIT 5', [cid])
+                          'ORDER BY count DESC LIMIT 5', (cid,))
             else:
                 self.irch.say('No data available.', dst)
                 
@@ -236,7 +306,6 @@ class Statistics(PluginBase):
             
             if len(rows) > 0:
                 msg = []
-                self.logger.warning(rows)
                 i = 1
                 for row in rows:
                     msg.append('{0}. {1} ({2} mentions)'.format(i, row[0], row[1]))
