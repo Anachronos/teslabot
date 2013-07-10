@@ -27,7 +27,7 @@ class WebTools(PluginBase):
             if word[:7] == 'http://' or word[:8] == 'https://':
                 title = self.url_title(word)
                 if title:
-                    self.irch.say(title, channel)
+                    self.irch.say(title, channel.name)
         
     def url_title(self, url):
         """Extracts the HTML title of a given URL.
