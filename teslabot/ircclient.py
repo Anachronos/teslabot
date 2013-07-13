@@ -227,9 +227,8 @@ class IRCClient(IRC):
         self._on_event('on_channel_part', [user, channel, reason])
 
     def on_channel_topic(self, user, channel, topic):
-        print channel.topic
-        #log_msg = '[{0}] {1} changes the channel topic to: {2}'
-        #self.logger.info(log_msg.format(channel, user.nick, topic))
+        log_msg = '[{0}] {1} changes the channel topic to: {2}'
+        self.logger.info(log_msg.format(channel.name, user.nick, topic))
 
     def on_channel_invite(self, user, channel):
         raise NotImplementedError

@@ -65,39 +65,51 @@ class User(object):
     
 
 class UserModes(object):
+    """Stores user modes for every channel."""
     def __init__(self):
         self._modes = {}
         self._privileges = {'v': 1, 'o': 2, 'h': 3, 'a': 4, 'q': 5}
 
     def __str__(self):
-        output = ''
+        output = "<UserModes: {0}>"
+        output2 = ''
+
         for key, value in self._modes.items():
-            output += '{0}:'.format(key)
+            output2 += '{0}:'.format(key)
             for mode in value:
-                output += ' +{0}'.format(mode)
-            output += '\n'
-        return output
+                output2 += ' +{0}'.format(mode)
+        return output.format(output2)
        
     def get(self, chan):
         return self._modes[chan]
 
     def add(self, chan, mode):
-        """Adds a given mode to the user's channel mode list.
+        """Appends a given mode to the user's channel mode list.
         Arguments:
             mode: A single ASCII/UTF-8 letter
         """
         try:
             mode_list = self._modes[chan]
+            if mode in mode_list:
+                return
             mode_list.append(mode)
         except KeyError:
             self._modes[chan] = [mode]
 
     def remove(self, chan, mode):
-        """Removes a given mode from the user's channel mode list."""
-        mode_list = self._modes[chan]
-        for x in enumerate(mode_list):
-            if x[1] == mode:
-                mode_list.pop(x[0])
+        """Removes a given mode from the user's channel mode list.
+        Args:
+            mode: A mode string. If -1, wipe the list of modes.
+            chan: A channel name string
+        """
+        if mode == -1:
+            self._modes[chan] = []
+            print(self._modes)
+        else:
+            mode_list = self._modes[chan]
+            for x in enumerate(mode_list):
+                if x[1] == mode:
+                    mode_list.pop(x[0])
 
     def is_owner(self, chan):
         mode_list = self.get(chan)

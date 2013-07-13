@@ -351,7 +351,6 @@ class IRC(object):
             
         elif cmd == 'NICK':
             self.users.get(user=user).nick = args
-            print id(self.users[args])
 
         elif cmd == 'PART':
             subargs = args.split()
@@ -442,12 +441,10 @@ class IRC(object):
         for i, mode in enumerate(modes[1:]):
             if mode in ('a', 'q', 'o', 'h', 'v'):
                 target = self.users.get(args[i])
-                print(target.nick)
                 if modes[0] == '+':
                     target.modes.add(channel.name, mode)
                 else:
                     target.modes.remove(channel.name, mode)
-                print(target.modes)
 
     def on_channel_message(self, user, channel, msg):
         raise NotImplementedError
@@ -464,6 +461,7 @@ class IRC(object):
 
     def on_channel_part(self, user, channel, reason):
         """on_channel_part is called when a user (including the bot) leaves the channel."""
+        user.modes.remove(channel.name, -1)
         if user.nick == self.user.nick:
             self.channels.remove(channel)
         else:
