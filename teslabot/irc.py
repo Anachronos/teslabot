@@ -301,7 +301,8 @@ class IRC(object):
 
         for msg in data:
             self.logger.debug('{0}'.format(msg))
-            self._parse_message(msg)
+            # Assuming it's UTF-8 encoded. If not, ignore errors.
+            self._parse_message(msg.decode('utf-8', 'ignore'))
 
     def _parse_message(self, msg):
         """Parses a given IRC message."""

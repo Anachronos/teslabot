@@ -200,7 +200,7 @@ class IRCClient(IRC):
         self._on_event('on_chat_command', [src, dst, cmd[1:], args, type])
 
     def on_channel_message(self, user, channel, msg):
-        self.logger.info('[{0}] <{1}> {2}'.format(channel.name, user.nick, msg))
+        self.logger.info(u'[{0}] <{1}> {2}'.format(channel.name, user.nick, msg))
         
         if msg[:1] == self.trigger:
             self.on_chat_command(user, channel.name, msg)
