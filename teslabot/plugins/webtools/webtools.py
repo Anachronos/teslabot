@@ -142,34 +142,28 @@ class WebTools(PluginBase):
         reply = []
         type_count = {'n': 0, 'v': 0, 'adj': 0, 'pro': 0, 'interj': 0, 'adv': 0, 'idiom': 0}
             
-        ans = soup.find('ol', attrs={'class': 'definitions'})
-        if ans:
-            for i in ans:
-                if i == '\n':
-                    continue
-                wtype = i.contents[0].find('abbr').string[:-1]
-                if wtype:
-                    if type_count[wtype] > 0:
-                        continue
-                    desc = i.contents[0].find('em')
-                    if desc:
-                        newdef = []
-                        lblock = i.contents[0].findAll(text=True)
-                        for x in lblock:
-                            if x != ' ':
-                                newdef.append(x)
-                        defin = u' '.join([x.strip() for x in newdef])
-                        defin = defin.replace(desc.string, u'\x0312{0}\x03'.format(desc.string))
-                        defin = defin.replace(wtype, u'\x038{0}\x03'.format(wtype), 1)
-                        reply.append(defin)
-                    else:
-                        defin =  u''.join(i.findAll(text=True)[1:])
-                        reply.append(u'\x038{0}\x03.{1}'.format(wtype, defin))
-                    type_count[wtype] = 1
-                
-            self.irch.say(u'\x038[Dictionary] \x03\x02{0}\x02: {1}'.format(phrase, u' \x02\x0311|\x03\x02 '.join(reply)), dst)
+        ans = soup.find('div', attrs={'class': 'guts active'})
+        source = ''
+        for h3 in ans.findAll('h3'):
+            source = h3.string
+
+            ul = h3.findNextSiblings('ul')
+            defList = ul[0].find_all('li')
+            for item in defList:
+                abbr = item.contents[0].string
+                definition = item.contents[1].string
+
+                if abbr is not None and definition is not None:
+                    word_type = abbr.replace('.', '')
+                    if type_count[word_type] == 0:
+                        result = u'{0}.{1}'.format(word_type, definition)
+                        reply.append(result)
+                        type_count[word_type] = 1
+            break
+        if reply:
+            self.irch.say(u'\x038[Dict]\x03 \x02\x032{0}:\x03\x02 {1}'.format(phrase, u' | '.join(reply), source), dst)
         else:
-            self.irch.say(u'Definition not for \x02{0}\x02 not found.'.format(phrase), dst)
+            self.irch.say(u'\x038[Dictionary]\x03 Definition for \x02{0}\x02 not found.'.format(phrase), dst)
 
     def subcommand_def_urbdict(self, user, dst, args):
         r = requests.get(u'http://api.urbandictionary.com/v0/define?term={0}'.format(args))
