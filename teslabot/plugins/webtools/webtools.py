@@ -9,6 +9,8 @@ try:
 except ImportError:
     from bs4 import BeautifulSoup
 import json
+from config import Config
+import datetime
 
 class WebTools(PluginBase):
     """WebTools provides commands for quickly extracting information from websites such as
@@ -21,13 +23,96 @@ class WebTools(PluginBase):
         PluginBase.__init__(self)
         self.name = 'WebTools'
         self.logger = logging.getLogger('teslabot.plugin.webtools')
-        
+
+        self.imageboard_urls = Config().get(self.name.lower(), 'imageboard').split()
+
     def on_channel_message(self, user, channel, msg):
         for word in msg.split():
             if word[:7] == 'http://' or word[:8] == 'https://':
-                title = self.url_title(word)
-                if title:
-                    self.irch.say(title, channel.name)
+                domain = self.get_domain(word)
+
+                if domain in self.imageboard_urls:
+                    self.handle_imgboard_url(user, channel, word, domain)
+                else:
+                    title = self.url_title(word)
+                    if title:
+                        self.irch.say(title, channel.name)
+
+    def handle_imgboard_url(self, user, channel, url, domain):
+        """Parses an imageboard url."""
+        url = url.split('/')
+        board = url[3]
+        post = None
+
+        # If the URL points to a post inside the thread
+        if url[-1].find('#') != -1:
+            thread = url[-1].split('#')[0].split('.')[0]
+            post = int(''.join([x for x in url[-1].split('#')[1] if x.isdigit()]))
+        else:
+            thread = url[-1].split('.')[0]
+
+        api = 'http://{0}/{1}/res/{2}.json'.format(domain, board, thread)
+        print(api)
+        r = requests.get(api)
+        r.encoding = 'utf-8'
+
+        if r.text:
+            try:
+                items = json.loads(r.text)
+            except ValueError:
+                self.irch.say('404 - Not found.', channel.name)
+                return
+
+            item = None
+
+            if not post:
+                item = items['posts'][0]
+            else:
+                print(post)
+                for p in items['posts']:
+                    if int(p['no']) == post:
+                        item = p
+                if item is None:
+                    self.irch.say('404 - Post Not found.', channel.name)
+                    return
+
+            if item:
+                reply = '\x032[/{0}/]\x03 \x0310{1}\x03 \x02\x037{2}:\x03\x02 {3}'
+
+                preview = self.format_text(item['com'])
+                time = datetime.datetime.fromtimestamp(item['time'])
+                time = datetime.datetime.today() - time
+                if time.days > 0:
+                    time = '{0} days ago'.format(time.days)
+                else:
+                    if time.seconds < 60:
+                        time = '{0} seconds ago'.format(time.seconds)
+                    elif time.seconds < 60*60:
+                        time = '{0} minutes ago'.format(time.seconds / 60)
+                    else:
+                        print(time.seconds)
+                        time = '{0} hours ago'.format(time.seconds / (60*60))
+
+                reply = reply.format(board, time, item['name'], preview)
+
+                self.irch.say(reply, channel.name)
+
+        else:
+            self.irch.say('404 - Not found.', channel.name)
+                
+    def get_domain(self, url):
+        """Returns the full domain of a given URL."""
+        if url[:7] == 'http://':
+            spos = 7
+        elif url[:8] == 'https://':
+            spos = 8
+
+        pos = url[spos:].find('/')
+
+        if pos != -1:
+            return url[spos:spos+pos]
+        else:
+            return url
         
     def url_title(self, url):
         """Extracts the HTML title of a given URL.
@@ -39,7 +124,10 @@ class WebTools(PluginBase):
             An escaped title. 
             If the title was not found, it returns None.
         """
-        req = requests.get(url)
+        try:
+            req = requests.get(url)
+        except requests.ConnectionError:
+            return 'Connection error. Invalid URL or host is down.'
         req.encoding = 'utf-8'
         text = req.text
         
@@ -61,6 +149,8 @@ class WebTools(PluginBase):
         h = HTMLParser()
         text = h.unescape(text)
         
+        text = text.replace('<br>', ' ')
+        text = text.replace('<br/>', ' ')
         text = re.sub('<[^>]+?>', '', text)
         text = text.replace('\r\n', ' ')
         text = text.replace('\r', ' ')
