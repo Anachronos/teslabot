@@ -30,8 +30,9 @@ class WebTools(PluginBase):
         for word in msg.split():
             if word[:7] == 'http://' or word[:8] == 'https://':
                 domain = self.get_domain(word)
+                pattern = '{0}/{1}/res/{1}'.format(domain, '.+')
 
-                if domain in self.imageboard_urls:
+                if domain in self.imageboard_urls and re.findall(pattern, word):
                     self.handle_imgboard_url(user, channel, word, domain)
                 else:
                     title = self.url_title(word)
@@ -52,7 +53,6 @@ class WebTools(PluginBase):
             thread = url[-1].split('.')[0]
 
         api = 'http://{0}/{1}/res/{2}.json'.format(domain, board, thread)
-        print(api)
         r = requests.get(api)
         r.encoding = 'utf-8'
 
@@ -68,7 +68,6 @@ class WebTools(PluginBase):
             if not post:
                 item = items['posts'][0]
             else:
-                print(post)
                 for p in items['posts']:
                     if int(p['no']) == post:
                         item = p
@@ -90,7 +89,6 @@ class WebTools(PluginBase):
                     elif time.seconds < 60*60:
                         time = '{0} minutes ago'.format(time.seconds / 60)
                     else:
-                        print(time.seconds)
                         time = '{0} hours ago'.format(time.seconds / (60*60))
 
                 reply = reply.format(board, time, item['name'], preview)
@@ -196,8 +194,6 @@ class WebTools(PluginBase):
         req.encoding = 'utf-8'
         text = req.text
         
-        print text
-
         if text.find(',') != -1:
             country = text.split(',')[2]
             city = text.split(',')[4][1:][:-1]
