@@ -20,12 +20,21 @@ class IRC(object):
         logger: A Logger object
         channels: A ChannelList object
         admins: A list of User objects
-        ssl: A boolean  to enable or disable SSL wrapper
+        ssl: A boolean to enable or disable SSL wrapper
         
         _init_channels: A list of channels that is joined when the client is connected
         _reconnect: Whether or not to reconnect when socket connection is lost
         _password: The connection password (if any)
         _buffer: A socket buffer string
+        
+        _ping: UNIX time of last ping request
+        _stimeout_count: A counter to keep track of the number of timeouts
+        _SOCKET_TIMEOUT: The number of seconds before the socket times out
+        _PING_TIMEOUT: The number of seconds after which a PING message is considered timed out
+        _PING_FREQUENCY: The number of seconds (in multiples of _SOCKET_TIMEOUT) that must elapse
+            before a PING message is sent to the server.
+        
+        _last_msg: UNIX time of latest received message
     """
     def __init__(self, nick, realname, channels, admins, _ssl = False, reconnect = False, password = False):
         self.users = UserList()
@@ -37,6 +46,7 @@ class IRC(object):
         self._init_channels = channels
         self._ssl = _ssl
         self._reconnect = reconnect
+        self._reconnect_time = 0
         self._password = password
         self._buffer = ''
         
@@ -44,6 +54,14 @@ class IRC(object):
         self._msg_last_id = 0
         self._max_mps = 5
         self._throttle = False
+
+        self._ping = 0
+        self._stimeout_count = 0
+        self._SOCKET_TIMEOUT = 5
+        self._PING_TIMEOUT = 5
+        self._PING_FREQUENCY = 12
+        
+        self._last_msg = 0
 
         self.alive = 1
         
@@ -60,8 +78,8 @@ class IRC(object):
         while self.alive:
             try:
                 self._recv()
-            except socket.error as e:
-                if e.errno == errno.EBADF:
+            except (socket.error, socket.gaierror) as e:
+                    self.logger.debug(e)
                     self.reconnect()
 
     def _get_headers(self):
@@ -267,6 +285,10 @@ class IRC(object):
         finally:
             self.logger.info('Disconnected from [{0}].'.format(self.user.host))
 
+    def ping(self):
+        self.send('PING {0}'.format(self._host))
+        self._ping = time.time()
+
     def _set_hostname(self, args):
         self.user.host = args.split(' ')[1]
     
@@ -274,16 +296,27 @@ class IRC(object):
         """Processes messages received from the IRC server and calls the
         appropriate handlers."""
         buffer = ''
+        self._last_msg = time.time()
         
         try:
             buffer = self._buffer + self.sock.recv(512)
-        except (socket.error, socket.gaierror) as e:
-            self.logger.critical(e.strerror)
-
+        except socket.timeout:
+            self._stimeout_count += 1
+            if self._stimeout_count >= self._PING_FREQUENCY and not self._ping:
+                self._stimeout_count = 0
+                self.ping()
+            elif self._ping:
+                diff = time.time() - self._ping
+                if diff >= self._PING_TIMEOUT:
+                    self.logger.info('Disconnected due to timeout.')
+                    self.reconnect()
+            return
+        
         self._buffer = ''
 
         # Server has closed the socket connection
         if len(buffer) == 0:
+            self.logger.debug('Server has closed socket connection.')
             self.quit(force=True)
         
         data = buffer.split('\r\n')
@@ -306,21 +339,25 @@ class IRC(object):
 
     def _parse_message(self, msg):
         """Parses a given IRC message."""
-
         if msg[:4] == 'PING':
             self.send('PONG {0}'.format(msg[5:]))
             return
 
-        if msg[:5] == 'ERROR':
+        elif msg[:5] == 'ERROR':
             self.quit(force=True)
         
         src, cmd, args = msg.split(' ', 2)
         user = self.users.get(src[1:])
+        
+        if cmd == 'PONG' and self._ping:
+            diff = time.time() - self._ping
+            self._ping = 0
+            self.logger.debug('PONG acknowledged ({0}s).'.format(diff))
 
-        if cmd == 'PRIVMSG':
+        elif cmd == 'PRIVMSG':
             self._on_privmsg(user, args)
 
-        if cmd == 'MODE':
+        elif cmd == 'MODE':
             args = args.split(' ', 2)
             subargs = False
 
@@ -406,6 +443,7 @@ class IRC(object):
             self.logger.info('Connecting to {0}:{1}.'.format(host, port))
             
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.sock.settimeout(self._SOCKET_TIMEOUT)
             if self._ssl:
                 self.sock = ssl.wrap_socket(self.sock, cert_reqs=ssl.CERT_NONE)
             self.sock.connect((host, port))
@@ -417,12 +455,21 @@ class IRC(object):
             self.send('NICK {0}'.format(self.user.nick))
             self.send('USER {0} 0 * :{0}'.format(self.user.real))
 
-        except (socket.timeout, socket.error) as e:
-            self.logger.critical('Failed to connect to [{0}].'.format(host))
+        except socket.error as e:
+            self.logger.critical('Failed to connect to {0}:{1}.'.format(host, port))
             
     def reconnect(self):
         if self._reconnect:
+            # Wait 15 seconds before reconnecting again
+            tdiff = time.time() - self._reconnect_time
+            if self._reconnect_time and tdiff < 15:
+                self.logger.info('Attempting to reconnect in 15 seconds...')
+                time.sleep(15)
+                
             self.connect(self._host, self._port)
+            self._reconnect_time = time.time()
+        else:
+            self.logger.info('Reconnection disabled.')
             
     def on_connect(self):
         self.whois(self.user.nick)
