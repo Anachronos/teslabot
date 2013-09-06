@@ -47,6 +47,8 @@ class IRCClient(IRC):
         self.CMD_CHANNEL = 1
         self.CMD_PRIVATE = 2
         
+        self.auto_rejoin = 1
+        
     def _import_plugins(self, Reload = False):
         """Imports (or reloads) modules from the list of plugins and returns a 
         list of plugin (class) objects."""
@@ -233,8 +235,9 @@ class IRCClient(IRC):
     def on_channel_invite(self, user, channel):
         raise NotImplementedError
 
-    def on_channel_kick(self):
-        raise NotImplementedError
+    def on_channel_kick(self, user, channel, target, reason):
+        if target is self.user and self.auto_rejoin:
+            self.join(channel.name)
 
     def on_channel_quit(self):
         raise NotImplementedError

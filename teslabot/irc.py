@@ -85,8 +85,9 @@ class IRC(object):
     def _get_headers(self):
         return ':' + self.user.nick + '!' + self.user.real + '@' + self.user.hostname
 
-    def join(self, channel):
-        self.send('JOIN :{0}'.format(channel))
+    def join(self, chan):
+        """Accepts channel name string."""
+        self.send('JOIN :{0}'.format(chan))
         
     @property
     def nick(self):
@@ -386,6 +387,13 @@ class IRC(object):
             channel = self.channels.add(chan)
             self.on_channel_join(user, channel)
             
+        elif cmd == 'KICK':
+            chan, target, reason = args.split(' ', 2)
+            channel = self.channels[chan]
+            target = self.users.get(target)
+            
+            self.on_channel_kick(user, channel, target, reason[1:])
+            
         elif cmd == 'NICK':
             self.users.get(user=user).nick = args
 
@@ -418,7 +426,8 @@ class IRC(object):
             self.on_motd(args)
             
     def on_motd(self, msg):
-        self.logger.info(msg.split(':', 1)[1])
+        if not __debug__:
+            self.logger.info(msg.split(':', 1)[1])
             
     def _on_whois(self, cmd, args):
         if cmd == RPL_WHOISUSER:
@@ -513,6 +522,9 @@ class IRC(object):
             self.channels.remove(channel)
         else:
             channel.remove(user)
+            
+    def on_channel_kick(self, user, channel, target, reason):
+        raise NotImplementedError
 
     def on_channel_topic(self, user, channel, topic):
         raise NotImplementedError
@@ -521,7 +533,8 @@ class IRC(object):
         raise NotImplementedError
     
     def on_notice(self, user, msg):
-        self.logger.info('-{0}- {1}'.format(user.nick, msg))
+        if not __debug__:
+            self.logger.info('-{0}- {1}'.format(user.nick, msg))
 
     def on_nickinuse(self):
         raise NotImplementedError
