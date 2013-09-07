@@ -78,9 +78,8 @@ class IRC(object):
         while self.alive:
             try:
                 self._recv()
-            except (socket.error, socket.gaierror) as e:
-                    self.logger.debug(e)
-                    self.reconnect()
+            except socket.error as e:
+                self.reconnect()
 
     def _get_headers(self):
         return ':' + self.user.nick + '!' + self.user.real + '@' + self.user.hostname
@@ -292,7 +291,18 @@ class IRC(object):
 
     def _set_hostname(self, args):
         self.user.host = args.split(' ')[1]
-    
+        
+    def _recv_timeout(self):
+        self._stimeout_count += 1
+        if self._stimeout_count >= self._PING_FREQUENCY and not self._ping:
+            self._stimeout_count = 0
+            self.ping()
+        elif self._ping:
+            diff = time.time() - self._ping
+            if diff >= self._PING_TIMEOUT:
+                self.logger.info('Disconnected due to timeout.')
+                self.reconnect()
+                
     def _recv(self, timeout = False):
         """Processes messages received from the IRC server and calls the
         appropriate handlers."""
@@ -301,16 +311,12 @@ class IRC(object):
         
         try:
             buffer = self._buffer + self.sock.recv(512)
+        except (socket.error, ssl.SSLError) as e:
+            if e.message == 'The read operation timed out':
+               self._recv_timeout()
+               return
         except socket.timeout:
-            self._stimeout_count += 1
-            if self._stimeout_count >= self._PING_FREQUENCY and not self._ping:
-                self._stimeout_count = 0
-                self.ping()
-            elif self._ping:
-                diff = time.time() - self._ping
-                if diff >= self._PING_TIMEOUT:
-                    self.logger.info('Disconnected due to timeout.')
-                    self.reconnect()
+            self._recv_timeout()
             return
         
         self._buffer = ''
@@ -318,7 +324,7 @@ class IRC(object):
         # Server has closed the socket connection
         if len(buffer) == 0:
             self.logger.debug('Server has closed socket connection.')
-            self.quit(force=True)
+            raise socket.error
         
         data = buffer.split('\r\n')
         
@@ -452,9 +458,9 @@ class IRC(object):
             self.logger.info('Connecting to {0}:{1}.'.format(host, port))
             
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.sock.settimeout(self._SOCKET_TIMEOUT)
             if self._ssl:
                 self.sock = ssl.wrap_socket(self.sock, cert_reqs=ssl.CERT_NONE)
+            self.sock.settimeout(self._SOCKET_TIMEOUT)
             self.sock.connect((host, port))
             self.alive = 1
             
@@ -475,6 +481,7 @@ class IRC(object):
                 self.logger.info('Attempting to reconnect in 15 seconds...')
                 time.sleep(15)
                 
+            self.logger.debug('Reconnecting.')
             self.connect(self._host, self._port)
             self._reconnect_time = time.time()
         else:
