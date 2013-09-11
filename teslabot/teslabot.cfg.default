@@ -11,6 +11,10 @@ password =
 
 reconnect = False
 
+oper_user =
+
+oper_pass =
+
 ssl = False
 
 channels = #test #test2

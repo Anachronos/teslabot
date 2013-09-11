@@ -12,8 +12,10 @@ class IRCClient(IRC):
     TODO: Ensure that public methods are thread-safe.
     """
     def __init__(self, nick, realname, channels, admin, trigger, plugins,
-                  password = False, _ssl = False, reconnect = False):
-        IRC.__init__(self, nick, realname, channels, admin, _ssl, reconnect, password)
+                  password = False, _ssl = False, reconnect = False,
+                  oper_user = False, oper_pass = False):
+        IRC.__init__(self, nick, realname, channels, admin, _ssl, reconnect, password,
+                     oper_user, oper_pass)
 
         self.plugins = plugins
         self.send_lock = threading.Lock()
@@ -173,10 +175,10 @@ class IRCClient(IRC):
                 # Communicate with the plugin thread
                 q.put([event, args[:4]])
 
-    def send(self, msg):
+    def send(self, msg, silent = False):
         """Sends a message to the IRC server."""
         self.send_lock.acquire()
-        IRC.send(self, msg)
+        IRC.send(self, msg, silent)
         self.send_lock.release()
         
     def on_connect(self):

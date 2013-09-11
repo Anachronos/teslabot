@@ -26,6 +26,8 @@ class Config:
         self.trigger = self.parser.get('teslabot', 'trigger')
         self.password = self.parser.get('teslabot', 'password')
         self.admins = self.parser.get('teslabot', 'admins').split()
+        self.oper_user = self.parser.get('teslabot', 'oper_user')
+        self.oper_pass = self.parser.get('teslabot', 'oper_pass')
         self.ssl = self.parser.getboolean('teslabot', 'ssl')
         self.reconnect = self.parser.getboolean('teslabot', 'reconnect')
         self.plugins = self.parser.get('teslabot', 'plugins').split()

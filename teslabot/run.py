@@ -30,7 +30,8 @@ if __name__ == '__main__':
     c.read_all()
                 
     irch = IRCClient(c.nick, c.realname, c.channels, c.admins, c.trigger,
-                     c.plugins, c.password, c.ssl, c.reconnect)
+                     c.plugins, c.password, c.ssl, c.reconnect,
+                     c.oper_user, c.oper_pass)
     irch.load_plugins()
     irch.connect(c.host, c.port)
     irch.run()

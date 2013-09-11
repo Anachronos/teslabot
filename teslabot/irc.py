@@ -27,6 +27,10 @@ class IRC(object):
         _password: The connection password (if any)
         _buffer: A socket buffer string
         
+        _oper: Boolean indicating whether or not the server accepts the client as an IRCOP
+        _oper_user: A username string argument for the OPER command
+        _oper_pass: A password string argument for the OPER command
+        
         _ping: UNIX time of last ping request
         _stimeout_count: A counter to keep track of the number of timeouts
         _SOCKET_TIMEOUT: The number of seconds before the socket times out
@@ -36,7 +40,8 @@ class IRC(object):
         
         _last_msg: UNIX time of latest received message
     """
-    def __init__(self, nick, realname, channels, admins, _ssl = False, reconnect = False, password = False):
+    def __init__(self, nick, realname, channels, admins, _ssl = False, reconnect = False,
+                  password = False, oper_user = False, oper_pass = False):
         self.users = UserList()
         self.user = User(nick=nick, real=realname)
         self.users.append(self.user)
@@ -49,6 +54,10 @@ class IRC(object):
         self._reconnect_time = 0
         self._password = password
         self._buffer = ''
+        
+        self._oper = False
+        self._oper_user = oper_user
+        self._oper_pass = oper_pass
         
         self._msg_time = []
         self._msg_last_id = 0
@@ -197,7 +206,7 @@ class IRC(object):
         self._msg_last_id += 1
         return throttle
 
-    def send(self, msg):
+    def send(self, msg, silent = False):
         """msg should be 512 bytes or less"""
         
         if self._is_throttling():
@@ -207,7 +216,8 @@ class IRC(object):
         msg = msg.encode('utf-8')
         
         self.sock.send(msg + '\r\n')
-        self.logger.debug('{0}'.format(msg))
+        if not silent:
+            self.logger.debug('{0}'.format(msg))
 
     def leave(self, chan, reason = 'Leaving'):
         self.send('PART {0} :{1}'.format(chan, reason))
@@ -234,6 +244,13 @@ class IRC(object):
 
     def whois(self, nick):
         self.send('WHOIS {0}'.format(nick))
+        
+    def oper(self, username = False, password = False):
+        if not username:
+            username = self._oper_user
+        if not password:
+            password = self._oper_pass
+        self.send('OPER {0} {1}'.format(username, password), True)
 
     def is_chan(self, chan):
         """Returns true if a given string is a valid channel name."""
@@ -415,6 +432,9 @@ class IRC(object):
 
         elif cmd == RPL_WELCOME:
             self.on_connect()
+            
+        elif cmd == RPL_YOUREOPER:
+            self._oper = True
 
         elif cmd == RPL_HOSTHIDDEN:
             self._set_hostname(args)
@@ -489,6 +509,8 @@ class IRC(object):
             
     def on_connect(self):
         self.whois(self.user.nick)
+        if self._oper_user and self._oper_pass:
+            self.oper()
             
         for channel in self._init_channels:
             self.join(channel)
