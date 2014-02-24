@@ -11,6 +11,7 @@ except ImportError:
 import json
 from config import Config, ConfigParser
 import datetime, time
+from urlparse import urlparse
 
 class WebTools(PluginBase):
     """WebTools provides commands for quickly extracting information from websites such as
@@ -45,17 +46,36 @@ class WebTools(PluginBase):
         self.strings.NEWS_SET_REFRESHED = 'The news set has been updated!'
 
     def on_channel_message(self, user, channel, msg):
+        """Provides meta information of URLs in a given channel message."""
         for word in msg.split():
             if word[:7] == 'http://' or word[:8] == 'https://':
-                domain = self.get_domain(word)
+                parsed_url = urlparse(word)
+                domain = parsed_url.netloc
                 pattern = '{0}/{1}/res/{1}'.format(domain, '.+')
 
                 if domain in self.imageboard_urls and re.findall(pattern, word):
                     self.handle_imgboard_url(user, channel, word, domain)
                 else:
-                    title = self.url_title(word)
-                    if title:
-                        self.irch.say(title, channel.name)
+                    desc = self.handle_http_url(word)
+                    self.irch.say(desc, channel.name)
+
+    def handle_http_url(self, url):
+        r = requests.get(url)
+
+        if r.status_code == 200:
+            if r.headers['content-type'].count('text/html'):
+                r.encoding = 'utf-8'
+                soup = BeautifulSoup(r.text)
+                title = soup.title.text
+
+                return self.format_text(title)
+            else:
+                return u'Content-Type: {0} | Content Length: {1} KiB'.format(
+                    r.headers['content-type'],
+                    int(r.headers['content-length']) / 1024
+                )
+        else:
+            return u'HTTP Error Code: {0}'.format(r.status_code)
 
     def handle_imgboard_url(self, user, channel, url, domain):
         """Parses an imageboard url."""
@@ -115,50 +135,6 @@ class WebTools(PluginBase):
 
         else:
             self.irch.say('404 - Not found.', channel.name)
-                
-    def get_domain(self, url):
-        """Returns the full domain of a given URL."""
-        if url[:7] == 'http://':
-            spos = 7
-        elif url[:8] == 'https://':
-            spos = 8
-
-        pos = url[spos:].find('/')
-
-        if pos != -1:
-            return url[spos:spos+pos]
-        else:
-            return url
-        
-    def url_title(self, url):
-        """Extracts the HTML title of a given URL.
-        
-        Args:
-            url: a valid HTTP url
-        
-        Returns:
-            An escaped title. 
-            If the title was not found, it returns None.
-        """
-        try:
-            req = requests.get(url)
-        except requests.ConnectionError:
-            return 'Connection error. Invalid URL or host is down.'
-        req.encoding = 'utf-8'
-        text = req.text
-        
-        tag_start = '<title>'
-        tag_end = '</title>'
-        
-        start = text.find(tag_start)
-        end = text.find(tag_end)
-        
-        if start != -1 and end != -1:
-            title = req.text[start+len(tag_start):end]
-            h = HTMLParser()
-            return h.unescape(title).strip()
-        else:
-            return None
         
     def format_text(self, text):
         """Removes HTML and truncates the text for chat output."""
@@ -181,7 +157,7 @@ class WebTools(PluginBase):
                     text = text[:lastx+1]
                     break
                 i += 1
-        return text
+        return text.strip()
     
     def command_translate(self, user, dst, args):
         """Syntax: {0}translate <language> <text>, where <language> is the desired translation."""
