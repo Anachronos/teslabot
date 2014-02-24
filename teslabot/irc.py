@@ -329,7 +329,8 @@ class IRC(object):
         try:
             buffer = self._buffer + self.sock.recv(512)
         except (socket.error, ssl.SSLError) as e:
-            if e.message == 'The read operation timed out':
+            if e.message == 'The read operation timed out'\
+                    or e.message == 'timed out':
                self._recv_timeout()
                return
         except socket.timeout:
