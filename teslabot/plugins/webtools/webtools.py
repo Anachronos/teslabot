@@ -9,8 +9,8 @@ try:
 except ImportError:
     from bs4 import BeautifulSoup
 import json
-from config import Config
-import datetime
+from config import Config, ConfigParser
+import datetime, time
 
 class WebTools(PluginBase):
     """WebTools provides commands for quickly extracting information from websites such as
@@ -24,7 +24,25 @@ class WebTools(PluginBase):
         self.name = 'WebTools'
         self.logger = logging.getLogger('teslabot.plugin.webtools')
 
-        self.imageboard_urls = Config().get(self.name.lower(), 'imageboard').split()
+        # Load imageboard URL parser settings
+        try:
+            self.imageboard_urls = Config().get(self.name.lower(), 'imageboard').split()
+        except ConfigParser.NoSectionError:
+            self.logger.debug('Imageboard settings not found.')
+            self.imageboard_urls = []
+
+        self.news = {
+            'lupdate': None,
+            'uinterval': 60*5,
+            'cur_ed': 'us',
+            'set': False,
+        }
+        self.strings.URL_GOOGLE = 'https://news.google.com/news?edchanged=1&ned={0}&authuser=0'
+        self.strings.URL_GOOGLE_SEARCH = 'https://www.google.com/search?hl=en&gl=us&tbm=nws&authuser=0&q={0}'
+        self.strings.NO_NEWS_SET = 'There is no news set currently selected. Type news help ' \
+            'for more information.'
+        self.strings.KEYWORD_NOT_FOUND = 'No news items found.'
+        self.strings.NEWS_SET_REFRESHED = 'The news set has been updated!'
 
     def on_channel_message(self, user, channel, msg):
         for word in msg.split():
@@ -272,27 +290,277 @@ class WebTools(PluginBase):
             self.irch.say('\x038[UrbanDictionary]\x03 Definition not found.', dst)
     
     def command_news(self, user, dst, args):
-        """Displays random news headlines from US newspapers.
-        Optional syntax: [top]
+        """Retrieves the latest news from around the world.
+        Example: {0}news (Alias for {0}news next)
+        Syntax: {0}news [random|refresh|metadata]
+        Subcommands: filter, summary, next, find
+        Type {0}news <subcommand> help for more information.
         """
-        # TODO: Replace REGEX with BeautifulSoup
-        try:
-            req = requests.get('http://google.com/news?vanilla=1').text
+        params = ['random', 'refresh', 'metadata']
+        force_refresh = False
 
-            match = re.findall(r'<span class="titletext">(.+?)</div>', req)
-    
-            if not args:
-                rand = randint(0, len(match) - 1)
-                match = match[rand]
-    
-                match2 = re.search(r'<label class="esc-[a-z]*-article-source">(.+?)</label>', match)
-    
-                if match2:
-                    print match2.group()
-                    match = match.replace(match2.group(), ' \x02[' + match2.group() + '\x02]')
-    
-                self.irch.say(self.format_text(match), dst)
-            elif args == 'top':
-                self.irch.say(self.format_text('\x037(LEADING)\x03 ' + match[0]), dst)
+        if len(args.split()) > 0 and args.split()[0] not in params:
+            s_args = args.split()
+
+            if s_args[0] == 'find': # This subcommand requires no news set
+                self.subcommand_news_find(user, dst, ' '.join(s_args[1:]))
+            elif not self.news['set']:
+                self.irch.say(self.strings.NO_NEWS_SET, dst)
+            elif s_args[0] == 'filter':
+                self.subcommand_news_filter(user, dst, ' '.join(s_args[1:]))
+            elif s_args[0] == 'next':
+                self.subcommand_news_next(user, dst, ' '.join(s_args[1:]))
+            elif s_args[0] == 'summary':
+                self.subcommand_news_summary(user, dst, ' '.join(s_args[1:]))
+            else:
+                raise PluginBase.InvalidSyntax
+        else:
+            if self.news['lupdate']:
+                if time.time() - self.news['lupdate'] > self.news['uinterval']:
+                    force_refresh = True
+
+            if args == 'refresh' or not self.news['set'] or force_refresh:
+                # Build an unfiltered news set from Google News HTML,
+                # either when there is currently no news set, or
+                # when the argument 'refresh' is given.
+                try:
+                    r = requests.get(
+                        self.strings.URL_GOOGLE.format(self.news['cur_ed'])
+                    )
+                except requests.ConnectionError:
+                    self.irch.say(self.strings.CONNECTION_ERROR, dst)
+                    return
+
+                self.news['lupdate'] = time.time()
+
+                r.encoding = 'utf-8'
+                soup = BeautifulSoup(r.text)
+
+                titles = soup.find_all(class_='titletext')
+                top_headlines = []
+                side_headlines = []
+
+                for item in titles:
+                    url = item.parent['url']
+                    title = item.text
+                    summary = None
+                    timestamp = None
+                    source = None
+
+                    # Filter out certain invalid titles
+                    if u'sngltn' in item.parent.parent.parent['class']:
+                        continue
+
+                    if u'title' in item.parent.parent['class']:
+                        source_tag = item.parent.parent.next_sibling
+                        source = source_tag.contents[0].text
+                        timestamp = source_tag.contents[2].text
+
+                        side_headlines.append([title, timestamp, source, url])
+
+                    elif u'esc-lead-article-title-wrapper' in item.parent.parent.parent['class']:
+                        root = item.parent.parent.parent
+                        source_tag = root.next_sibling
+                        try:
+                            summary = source_tag.next_sibling.text
+                        except AttributeError:
+                            pass
+
+                        source = source_tag.find(class_='al-attribution-source').text
+                        timestamp = source_tag.find(class_='al-attribution-timestamp').text[1:-1]
+
+                        top_headlines.append([title, timestamp, source, url, summary])
+
+                summaries = soup.find_all(class_='esc-lead-snippet-wrapper')
+
+                for i in range(0, len(summaries)):
+                    top_headlines[i][4] = summaries[i].text # Set summary to corresponding item
+
+                self.news['set'] = NewsSet(name='US News', set_=top_headlines + side_headlines)
+
+            if args == 'random':
+                self.irch.say(self.news['set'].random(), dst)
+            elif args == 'refresh':
+                self.irch.say(self.strings.NEWS_SET_REFRESHED, dst)
+            elif args == 'metadata' and self.news['set']:
+                self.irch.say(unicode(self.news['set']), dst)
+            elif not args:
+                self.subcommand_news_next(user, dst, u'')
+
+    def subcommand_news_filter(self, user, dst, args):
+        """
+        Filters the current news set by a given keyword and returns the
+        first result of this news set.
+        {0}news filter <keyword>
+        """
+        if not args:
+            raise PluginBase.InvalidSyntax
+
+        result = self.news['set'].filter(args)
+
+        if len(result) > 0:
+            self.news['set'] = result
+            self.irch.say(self.news['set'].get(), dst)
+        else:
+            self.irch.say(self.strings.KEYWORD_NOT_FOUND, dst)
+
+
+    def subcommand_news_find(self, user, dst, args):
+        """Queries Google News for the first page of news results
+        for a given keyword.
+        Syntax: {0}news find <keyword>
+        """
+        if not user.admin:
+            raise PluginBase.InvalidPermission
+        try:
+            # TODO: Consider the safety of directly placing user input
+            r = requests.get(self.strings.URL_GOOGLE_SEARCH.format(args))
         except requests.ConnectionError:
+            self.irch.say(self.strings.CONNECTION_ERROR, dst)
             return
+
+        r.encoding = 'utf-8'
+        soup = BeautifulSoup(r.text)
+
+        titles = soup.find_all(class_='r')
+        search_set = []
+
+        for tag in titles:
+            url = tag.contents[0].attrs['href'].split('=', 1)[1]
+            title = tag.text
+            parent = tag.parent
+            source, timestamp = parent.find(class_='f').text.split(' - ')
+            summary = parent.find(class_='st').text
+
+            search_set.append([title, timestamp, source, url, summary])
+
+        if len(search_set) > 0:
+            self.news['set'] = NewsSet(name='Search: {0}'.format(args), set_=search_set)
+            self.irch.say(self.news['set'].get(), dst)
+        else:
+            self.irch.say(self.strings.KEYWORD_NOT_FOUND, dst)
+
+    def subcommand_news_next(self, user, dst, args):
+        """Returns the next news item in the currently selected news set.
+        Syntax: {0}news next
+        """
+        if args:
+            raise PluginBase.InvalidSyntax
+
+        if self.news['set']:
+            self.news['set'].next()
+            self.irch.say(self.news['set'].get(), dst)
+
+    def subcommand_news_summary(self, user, dst, args):
+        """Returns the summary of the currently selected news item.
+        Syntax: {0}news summary
+        """
+        if args:
+            raise PluginBase.InvalidSyntax
+
+        if self.news['set']:
+            self.irch.say(self.news['set'].get(True), dst)
+
+class NewsSet:
+    """A quasi-list with a cursor that points to an item in the list.
+    Represents a set of news articles.
+    """
+    def __init__(self, name=None, set_=None):
+        self._list = []
+        self._name = name
+        self._cursor = -1 # A "pointer" to a NewsItem
+
+        if set_:
+            for item in set_:
+                self.push(NewsItem(*item))
+
+    def __unicode__(self):
+        return u'[{0} | {1} items]'.format(self._name, self.__len__())
+
+    def filter(self, keyword):
+        """Returns a NewsSet with items that match the given keyword."""
+        result = NewsSet(u'Keyword: {0}'.format(keyword))
+
+        for i in range(len(self._list)):
+            if keyword.lower() in self._list[i].title.lower():
+                result.push(self._list[i])
+
+        return result
+
+    def get(self, summary=False):
+        """Returns the NewsItem pointed by the cursor."""
+        if self.__len__():
+            if summary:
+                return self._list[self._cursor].summary
+            else:
+                return unicode(self._list[self._cursor])
+        else:
+            return u'[{0}] Empty news list.'.format(self._name)
+
+    def random(self):
+        """Returns a random item (unicode) from the list."""
+        n = randint(0, self.__len__() - 1)
+        self._cursor = n
+
+        return self.get()
+
+    def push(self, news_item):
+        self._list.append(news_item)
+
+    def pop(self, news_item):
+        self._list.pop()
+
+    def next(self):
+        """Moves the cursor to the next item.
+        If the cursor is already at the last time, the cursor will return
+        to the first item."""
+        if self._cursor < len(self._list) - 1:
+            self._cursor += 1
+        else:
+            self._cursor = 0
+
+    def __len__(self):
+        return len(self._list)
+
+
+class NewsItem:
+    """Encapsulates a news item from Google News."""
+    def __init__(self, title, timestamp, source, url, summary=None):
+        self._title = title
+        self._summary = summary
+        self._timestamp = timestamp
+        self._source = source
+        self._url = url
+
+        self.SUMMARY_FMT = u'\u275D{0}\u275E \u00AB {1} \u00BB \u2043\u2043 {2} \u2043\u2043 \x0315{3}'
+        self.NONSUMMARY_FMT = u'\u275D{0}\u275E \u00AB {1} \u00BB | \x0315{2}'
+
+    @property
+    def summary(self):
+        if self._summary:
+            return self._summary
+        else:
+            return u'No summary available.'
+
+    @summary.setter
+    def summary(self, value):
+        self._summary = value
+
+    @property
+    def title(self):
+        return self._title
+
+    @title.setter
+    def title(self, value):
+        self._title = value
+
+    def __unicode__(self):
+        return self.NONSUMMARY_FMT.format(
+            self._title, self._timestamp, self._url
+        )
+
+    def get(self, summary=True):
+        return self.SUMMARY_FMT.format(
+            self._title, self._timestamp, self._summary, self._url
+        )
+

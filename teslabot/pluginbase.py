@@ -45,6 +45,11 @@ class PluginBase:
         self._qtimeout = 5
         self._qcount = 0
         
+        self.strings = self.Strings
+        
+    class Strings:
+        CONNECTION_ERROR = 'Could not retrieve website due to connection error.'
+        
     class InvalidSyntax(Exception):
         pass
     
