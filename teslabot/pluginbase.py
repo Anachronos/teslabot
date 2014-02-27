@@ -1,12 +1,16 @@
 import sys
 import Queue
 import logging
+import time
 
 class PluginBase:
     """Base class for a plugin.
     
     By default, it runs as a single thread and communicates via Queue. The Queue times out
-    every self._qtimeout and calls any hooked function. 
+    every self._qtimeout and calls any hooked function.
+
+    Currently, there is no support for having hooks that operate instantly and on a given
+    interval in the same module.
     
     Attributes:
         name: The name of the plugin.
@@ -92,7 +96,12 @@ class PluginBase:
         self.irch = irc
         while self.alive:
             try:
-                event, args = q.get(True, self._qtimeout)
+                if self._qtimeout:
+                    event, args = q.get(True, self._qtimeout)
+                else:
+                    # Timeout every microsecond.
+                    time.sleep(0.0001)
+                    event, args = q.get(False)
                 
                 callback = getattr(self, event)
                 callback(*args)
@@ -105,7 +114,7 @@ class PluginBase:
             except Queue.Empty:
                 self.call_hooks()
                 
-    def hook(self, method, interval):
+    def hook(self, method, interval=1):
         """Adds a callback that will be called every (multiple * timeout), where timeout 
         is run()'s Queue.get() timeout in seconds. (Queue timeouts every 5 seconds by default.)"""
         self._hooks.append([method, interval])
@@ -113,16 +122,21 @@ class PluginBase:
     def unhook(self, method):
         """Removes a given callback from the hook list."""
         for h in self._hooks:
-            if h == method:
+            if h[0] == method:
                 self._hooks.remove(h)
         
     def call_hooks(self):
         """Calls a hooked function every (_qtimeout * multiple seconds), where _qtimeout are
         the seconds for Queue.get() to timeout."""
-        self._qcount += 1
-            
-        for h in self._hooks:
-            if self._qcount % h[1] == 0:
+
+        if self._qtimeout:
+            self._qcount += 1
+
+            for h in self._hooks:
+                if self._qcount % h[1] == 0:
+                    h[0]()
+        else:
+            for h in self._hooks:
                 h[0]()
         
     def on_exit(self):

@@ -30,7 +30,7 @@ class User(object):
 
         if 'src' in kwargs:
             self._parse(kwargs['src'])
-        
+
     @property
     def admin(self):
         if self._admin:
