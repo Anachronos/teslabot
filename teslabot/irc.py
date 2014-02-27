@@ -54,6 +54,7 @@ class IRC(object):
         self._reconnect_time = 0
         self._password = password
         self._buffer = ''
+        self._ipaddr = None
         
         self._oper = False
         self._oper_user = oper_user
@@ -91,7 +92,7 @@ class IRC(object):
                 self.reconnect()
 
     def _get_headers(self):
-        return ':' + self.user.nick + '!' + self.user.real + '@' + self.user.hostname
+        return ':' + self.user.nick + '!' + self.user.real + '@' + self.user.host
 
     def join(self, chan):
         """Accepts channel name string."""
@@ -268,16 +269,15 @@ class IRC(object):
         """
         dst, msg  = args.split(' ', 1)
         
-        # CTCP message
+        # CTCP query/reply
         if msg[1] == '\x01' and msg[-1] == '\x01':
-            msg = msg[2:-1]
-            if len(msg.split()) > 1:
-                cmd, subargs = msg[1:-1].split(' ', 1)
+            ctcp_msg = msg[2:-1]
+            if len(ctcp_msg.split()) > 1:
+                cmd, subargs = ctcp_msg.split(' ', 1)
             else:
-                cmd = msg
+                cmd = ctcp_msg
                 subargs = None
-            
-            self.logger.info('>{0}< CTCP {1}'.format(user.nick, cmd))
+
             self.on_ctcp(user, cmd, subargs)
         
         # Channel message
@@ -306,8 +306,8 @@ class IRC(object):
         self.send('PING {0}'.format(self._host))
         self._ping = time.time()
 
-    def _set_hostname(self, args):
-        self.user.host = args.split(' ')[1]
+    def _set_hostname(self, hostname):
+        self.user.host = hostname
         
     def _recv_timeout(self):
         self._stimeout_count += 1
@@ -440,7 +440,8 @@ class IRC(object):
         elif cmd == RPL_HOSTHIDDEN:
             self._set_hostname(args)
 
-        elif cmd in (RPL_WHOISUSER, RPL_WHOISIDLE):
+        elif cmd in (RPL_WHOISUSER, RPL_WHOISIDLE, RPL_WHOISACTUALLY,
+            RPL_WHOISHOST):
             self._on_whois(cmd, args)
 
         elif cmd == ERR_NICKNAMEINUSE:
@@ -459,8 +460,8 @@ class IRC(object):
     def _on_whois(self, cmd, args):
         if cmd == RPL_WHOISUSER:
             if args.split(' ')[1] == self.user.nick:   # Self-WHOIS
-                self.user.hostname = args.split(' ')[3]    # Get the hostname
-                self.logger.debug('Setting hostname to [{0}].'.format(self.user.hostname))
+                self._set_hostname(args.split(' ')[3])    # Get the hostname
+                self.logger.debug('Setting hostname to [{0}].'.format(self.user.host))
             else:
                 pass
         elif cmd == RPL_WHOISIDLE:
@@ -469,6 +470,15 @@ class IRC(object):
             user = self.users.get(args[1])
             user.idle = int(args[2])
             user.signon = int(args[3])
+
+        elif cmd == RPL_WHOISACTUALLY:
+            self._ipaddr = args.split()[-1][1:-1]
+
+        elif cmd == RPL_WHOISHOST:
+            self._ipaddr = args.split()[-1]
+
+    def ipaddr(self):
+        return self._ipaddr
 
     def connect(self, host, port):
         """Attempts to establish a socket connection with a given IRC server."""
@@ -569,12 +579,11 @@ class IRC(object):
     def on_nickinuse(self):
         raise NotImplementedError
 
-    def ctcp_reply(self, msg, nick):
+    def ctcp(self, msg, nick):
         self.send(u'PRIVMSG {2} :{0}{1}{0}'.format('\x01', msg, nick))
-    
+
     def on_ctcp(self, user, cmd, args):
         global __version__
-        
+
         if cmd == 'VERSION':
-            self.ctcp_reply('VERSION Teslabot {0}'.format(__version__), user.nick)
-        
+            self.notice('VERSION Teslabot {0}'.format(__version__), user.nick)

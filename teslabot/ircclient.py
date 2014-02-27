@@ -36,6 +36,7 @@ class IRCClient(IRC):
             'on_channel_join': [],
             'on_channel_part': [],
             'on_private_message': [],
+            'on_ctcp': [],
             # Plugin specific events
             'on_exit': [],
             'on_load': [],
@@ -260,3 +261,7 @@ class IRCClient(IRC):
         
         The event itself is also called when the bot reloads the plugins, though not this method."""
         pass
+
+    def on_ctcp(self, user, cmd, args):
+        IRC.on_ctcp(self, user, cmd, args)
+        self._on_event('on_ctcp', [user, cmd, args])
