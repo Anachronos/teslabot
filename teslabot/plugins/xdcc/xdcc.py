@@ -100,6 +100,9 @@ class DCCSocket:
                     # At the beginning time differential may be small that it returns 0
                     pass
         else:
+            # For reasons yet understood, the file transfer will fail
+            # if there isn't a short pause before the socket is closed
+            time.sleep(0.05)
             return self._close()
 
     def _close(self):
@@ -109,7 +112,7 @@ class DCCSocket:
         # the connection. However, I need to at least acknowledge that I
         # received these packets or otherwise the transfer fails.
         try:
-            while len(self._socket.recv(4096)) != 0:
+            while self._socket.recv(4096):
                 pass
         except socket.error:
             pass
@@ -177,6 +180,7 @@ class DCCSocketManager:
 class FileSessionManager(object):
     """FileSessionManager contains a list of the current FileSessions
     in memory."""
+    # TODO: Implement a FileSession periodic clean up.
     def __init__(self, working_dir):
         self._list = []
         self._working_dir = working_dir
@@ -194,8 +198,7 @@ class FileSessionManager(object):
 
 
 class FileSession(object):
-    # TODO: Possibly redesign this class to generate list of files
-    # more efficiently.
+    """Provides iterators for the XDCC files."""
     def __init__(self, user, working_dir):
         """
         FileSession represent's an end-user's view of the XDCC files directory.
@@ -209,80 +212,134 @@ class FileSession(object):
         """
         self._working_dir = working_dir
         self._list_size = 10
-        self._list_limit = 50
-        self._current_page = 1
+        self._list_limit = 100
+        self._current_page = 0
+        self._last_page = None
+        self._filenames = None
+
         self.user = user
 
-    def set_list_size(self, value):
-        if value > 1 and value <= self._list_limit:
-            self._list_size = value
+    @property
+    def list_size(self):
+        return self._list_size
+
+    @list_size.setter
+    def list_size(self, value):
+        self._list_size = value
 
     def get(self, id_):
-        filenames = self._dir(dir=self._working_dir)
-        output = (os.path.join(self._working_dir, filenames[id_][1]),
-            filenames[id_][1], filenames[id_][2])
+        """
+        Given a "package number", returns a 4-tuple consisting of the
+        the package's file path, file name, and file description.
 
-        return output
+        Args:
+            id_: The "package number" of the XDCC file.
 
-    def _dir(self, page=None, limit=None, dir=None, filter=False):
-        """Returns an iterable list of tuples which contain pack number,
-         filename, and filesize of each directory file."""
-        directory = os.walk(dir)
+        Returns:
+            A 4-tuple object if the package was found
+                (id, filepath, filename, filesize)
+            None object if the package was not found.
+        """
+        try:
+            # TODO: Cache the file list.
+            self._filenames = self._fmt(self._get())
+            package = self._filenames[id_]
+        except KeyError:
+            package = None
+        return package
+
+    def _get(self):
+        """Returns a list of all the filenames in the working directory."""
+        self._filenames = []
+        directory = os.walk(self._working_dir)
         for triple in directory:
             dirpath, dirnames, filenames = triple
-            if dirpath != self._working_dir:
-                break
-
-            if filter:
-                new_filenames = []
-                for _file in filenames:
-                    if _file.find(filter) != -1:
-                        new_filenames.append(_file)
-                filenames = new_filenames
+            if dirpath != self._working_dir: break
 
             for i in range(len(filenames)):
-                print(i)
-                filenames[i] = (i, filenames[i])
+                self._filenames.append((i, filenames[i]))
+        return self._filenames
 
-            if not page:
-                return self._fmt_size(filenames)
-            elif page == 1:
-                return self._fmt_size(filenames[0:self._list_size])
+    def _filter(self, keyword):
+        new_filenames = []
+
+        if keyword:
+            for i in range(len(self._filenames)):
+                if keyword.lower() in self._filenames[i][1].lower():
+                    new_filenames.append(self._filenames[i])
+
+        self._filenames = new_filenames
+
+    def _paginate(self, page):
+        if page == 1:
+            if len(self._filenames) > self.list_size:
+                end = self.list_size
             else:
-                start = (page-1) * self._list_size
-                if start + self._list_size < len(filenames):
-                    # Include the elements from start to the number of _list_size
-                    return self._fmt_size(filenames[start:start + self._list_size])
-                else:
-                    # Last page
-                    return self._fmt_size(filenames[start:len(filenames)])
+                end = len(self._filenames)
+            return self._filenames[0:end]
+        else:
+            start = (page - 1) * self.list_size
+            if start + self.list_size < len(self._filenames):
+                return self._filenames[start:start + self.list_size]
+            else:
+                return self._filenames[start:len(self._filenames)]
 
-    def _fmt_size(self, filenames):
-        # TODO: Rename this function
-        # TODO: Create a way to adjust the size to MiB for xdcc list only.
-        """Appends filesize to each filename tuple.
+    def _fmt(self, filenames, **kwargs):
+        """Creates a 4-tuple for each filename string.
+
         The resulting tuple should be formated as:
-            (id, filename, filesize)
+            (id, filepath, filename, filesize)
         """
         for i in range(len(filenames)):
             path = os.path.join(self._working_dir, filenames[i][1])
             size = os.path.getsize(path)
 
-            # Reconstruct the tuple
-            filenames[i] = (i, filenames[i][1], size)
+            if kwargs.get('mib', None):
+                size = round(float(size) / 1024 / 1024, 2)
+            filenames[i] = (filenames[i][0], path, filenames[i][1], size)
 
         return filenames
 
-    def first(self):
-        self._current_page = 1
-        return self._dir(1, self._list_size, self._working_dir)
+    @property
+    def last_page(self):
+        return len(self._filenames) / self.list_size
 
-    def next(self):
-        self._current_page += 1
-        return self._dir(self._current_page, self._list_size, self._working_dir)
+    @property
+    def current_page(self):
+        return self._current_page
+
+    @current_page.setter
+    def current_page(self, value):
+        start = (value - 1) * self.list_size
+        # Reset to the first page if value is past the last page
+        if self._filenames and start + self.list_size > len(self._filenames):
+           self._current_page = 1
+        elif value < 0:
+            self._current_page = 1
+        else:
+            self._current_page = value
 
     def filter(self, keyword):
-        return self._dir(1, self._list_size, self._working_dir, keyword)
+        """Filters the filenames list by the given keyword string and
+        returns a paginated list of filenames."""
+        self._get()
+        self._filter(keyword=keyword)
+        self.current_page = 1
+        filenames = self._paginate(self.current_page)
+        return self._fmt(filenames, mib=True)
+
+    def next(self):
+        """Returns the next paginated list of filenames."""
+        if self._filenames is None:
+            self._get()
+        self.current_page += 1
+        filenames = self._paginate(self.current_page)
+
+
+        return self._fmt(filenames, mib=True)
+
+    def reset(self):
+        self._get()
 
 
 class XDCC(PluginBase):
@@ -302,6 +359,7 @@ class XDCC(PluginBase):
 
         directory: (Required) The file system directory where the files will be stored.
     """
+    # TODO: Collect statistics information such as bytes sent, etc.
     def __init__(self):
         PluginBase.__init__(self)
 
@@ -311,6 +369,7 @@ class XDCC(PluginBase):
 
         self._dcc_port = 6500
         self._dcc_ip = None
+        self.working_dir = None
 
         try:
             self._dcc_ip = Config().get(self.name.lower(), 'ip')
@@ -344,7 +403,7 @@ class XDCC(PluginBase):
         # Maximum number of file transfers
         self.max_conns = 5
         # Time to wait (in secs) before closing the server to new connections
-        self.new_conn_timeout = 10
+        self.new_conn_timeout = 20
         # Last time (in UNIX secs) that a new server connection was expected
         self._last_request = None
 
@@ -357,10 +416,6 @@ class XDCC(PluginBase):
         self.strings.ACTIVE_CONN_SINGULAR = u'There is currently one active ' \
             u'connection.'
         self.strings.ACTIVE_CONN_NONE = u'There are no active connections.'
-
-        # TEMPORARY SESSION DATA -- SHOULD BE REPLACED WITH CLASS
-        self.folder_map = {}
-        self.file_map = {}
 
     def ipaddr(self):
         if not self._dcc_ip:
@@ -404,7 +459,7 @@ class XDCC(PluginBase):
 
     def subcommand_xdcc_state(self, user, dst, args):
         """Returns state information about the current DCC connections.
-        Syntax: {0}dcc state"""
+        Syntax: {0}xdcc state"""
         count = self._manager.active()
 
         summary = u'\x02Active Conns:\x02 {0} \x02Inactive Conns:\x02 {1}'
@@ -416,41 +471,45 @@ class XDCC(PluginBase):
         self.irch.say(connections, dst)
 
     def subcommand_xdcc_list(self, user, dst, args):
+        """Browses the list of XDCC packages. Allows you to specify keywords
+        to filter the results.
+        Syntax: {0}xdcc list [filter]
+        Examples: {0}xdcc list, {0}xdcc list iso
         """
-        Syntax: {0}xdcc list [filter|next] [filter-argument]
-        """
-        session = self._sessions.get(user)
+        file_session = self._sessions.get(user)
 
-        fmt = u'\x02#{0}\x02 [{2} MiB] {1}'
+        fmt = u'\x02#{0}\x02 [{3} MiB] {2}'
 
         if not args:
-            for line in session.first():
-                self.irch.notice(fmt.format(*line), user.nick)
-        elif args.split()[0] == 'next':
-            for line in session.next():
-                self.irch.notice(fmt.format(*line), user.nick)
-        elif args.split()[0] == 'filter':
-            subargs = args.split()
-            if len(subargs) > 1:
-                filter = subargs[1]
-
-                for line in session.filter(keyword=filter):
-                    self.irch.notice(fmt.format(*line), dst)
-            else:
-                raise PluginBase.InvalidSyntax
+            lines = file_session.next()
         else:
-            raise PluginBase.InvalidSyntax
+            lines = file_session.filter(keyword=args)
+
+        if not len(lines):
+            self.irch.notice(u'No files were found.', dst)
+            return
+        for line in lines:
+            self.irch.notice(fmt.format(*line), user.nick)
+        if file_session.current_page < file_session.last_page:
+            fmt = u'Page {0}/{1}. Type {2}xdcc list for more results.'
+            self.irch.notice(fmt.format(file_session.current_page,
+                                        file_session.last_page,
+                                        self.irch.trigger), user.nick)
+        else:
+            self.irch.notice(u'End of XDCC package results.', user.nick)
 
     def subcommand_xdcc_send(self, user, dst, args):
         """
-        A user has requested a file.
+        Sends a file offer for the provided package number.
+        Syntax: {0}xdcc send <id>
+        Example: {0}xdcc send 31
         """
-        # TODO: Proper docstring
+        # TODO: Allow the user to move from a filtered result to normal results
         self._last_request = time.time()
 
         session = self._sessions.get(user)
         try:
-            file_path, file_name, file_size = session.get(id_=int(args[1:]))
+            i, file_path, file_name, file_size = session.get(int(args))
         except ValueError:
             raise PluginBase.InvalidArguments
 
@@ -464,16 +523,21 @@ class XDCC(PluginBase):
         if self._manager.pending():
             self.irch.say(self.strings.QUEUE_FULL, dst)
         else:
-            fuck = self.ipaddr()
             self.irch.say('\x01DCC SEND "{0}" {1} {2} {3}\x01'.format(
                 file_name,
-                struct.unpack('>L', socket.inet_aton(self.ipaddr()))[0],
+                struct.unpack('>L', socket.inet_aton(self.irch.ipaddr()))[0],
                 self._dcc_port,
                 file_size
             ), user.nick)
             self._manager.add(DCCSocket(
                 user, self._dcc_port, file_name, file_handler, file_size))
             self.hook(self.handle_new_conn)
+
+            self.irch.notice(
+                u'You have been offered [{0}] for download. Please accept the file ' \
+                u'within {1} seconds before the connection expires.'.format(
+                    file_name, self.new_conn_timeout
+                ), user.nick)
 
     def handle_new_conn(self):
         """Checks if the user has connected to the temporary for file transfer.
