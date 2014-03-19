@@ -48,6 +48,7 @@ class PluginBase:
         self._hooks = []
         self._qtimeout = 5
         self._qcount = 0
+        self._last_hook_call = time.time()
         
         self.strings = self.Strings
         
@@ -97,6 +98,8 @@ class PluginBase:
         while self.alive:
             try:
                 if self._qtimeout:
+                    if time.time() - self._last_hook_call > self._qtimeout:
+                        self.call_hooks()
                     event, args = q.get(True, self._qtimeout)
                 else:
                     # Timeout every microsecond.
@@ -128,6 +131,7 @@ class PluginBase:
     def call_hooks(self):
         """Calls a hooked function every (_qtimeout * multiple seconds), where _qtimeout are
         the seconds for Queue.get() to timeout."""
+        self._last_hook_call = time.time()
 
         if self._qtimeout:
             self._qcount += 1
@@ -136,9 +140,9 @@ class PluginBase:
                 if self._qcount % h[1] == 0:
                     h[0]()
         else:
-            for h in self._hooks:
-                h[0]()
-        
+                for h in self._hooks:
+                    h[0]()
+
     def on_exit(self):
         """Cleanly terminate the plugin's execution."""
         self.alive = True
