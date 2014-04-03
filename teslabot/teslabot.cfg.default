@@ -24,3 +24,6 @@ trigger = .
 admins = yournick
 
 plugins = Statistics CoreCommands WebTools
+
+[trivia]
+channel = #trivia
