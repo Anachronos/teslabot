@@ -1,0 +1,5 @@
+*.pyc
+.DS_Store
+irc.log
+teslabot/teslabot.cfg
+teslabot/plugins/statistics/stats.sqlite3
