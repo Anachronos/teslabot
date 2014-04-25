@@ -234,7 +234,7 @@ class WebTools(PluginBase):
                 definition = item.contents[1].string
 
                 if abbr is not None and definition is not None:
-                    word_type = abbr.replace('.', '')
+                    word_type = abbr.replace('.', '').split()[-1]
                     if type_count[word_type] == 0:
                         result = u'{0}.{1}'.format(word_type, definition)
                         reply.append(result)
