@@ -15,7 +15,12 @@ oper_user =
 
 oper_pass =
 
+; If ssl is True, ensure that the IRC port accepts SSL connections.
 ssl = False
+
+; Set the logging level for both the console and file output.
+; From lowest to highest: debug, info, warning, error, critical
+logging = debug
 
 channels = #test #test2
 
@@ -25,5 +30,7 @@ admins = yournick
 
 plugins = Statistics CoreCommands WebTools
 
-[trivia]
-channel = #trivia
+; To enable the trivia plugin, add 'Trivia' to the plugins value
+; and uncomment the following section.
+;[trivia]
+;channel = #trivia

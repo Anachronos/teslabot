@@ -17,7 +17,7 @@ class Config:
         except IOError:
             self.logger.critical('{0} is missing or inaccessible.'.format(self._config))
             sys.exit()
-            
+
         self.host = self.parser.get('teslabot', 'host')
         self.port = self.parser.getint('teslabot', 'port')
         self.nick = self.parser.get('teslabot', 'nick')
@@ -31,6 +31,22 @@ class Config:
         self.ssl = self.parser.getboolean('teslabot', 'ssl')
         self.reconnect = self.parser.getboolean('teslabot', 'reconnect')
         self.plugins = self.parser.get('teslabot', 'plugins').split()
+
+        logging_map = {
+            'debug': logging.DEBUG,
+            'info': logging.INFO,
+            'warning': logging.WARNING,
+            'error': logging.ERROR,
+            'critical': logging.CRITICAL,
+        }
+        try:
+            self.logging = self.parser.get('teslabot', 'logging')
+            try:
+                self.logging = logging_map[self.logging]
+            except KeyError:
+                raise Exception("Invalid value for 'logging' configuration.")
+        except ConfigParser.NoOptionError:
+            self.logging = logging.INFO
 
     def read_plugins(self):
         """Extracts the list of plugins to be loaded by the IRC client."""
