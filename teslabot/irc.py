@@ -46,6 +46,9 @@ class IRC(object):
         self.user = User(nick=nick, real=realname)
         self.users.append(self.user)
         self.channels = ChannelList(self.users)
+
+        self._nick = nick
+        self._real = realname
         
         self.logger = logging.getLogger('teslabot.irc')
         self._init_channels = channels
@@ -498,8 +501,8 @@ class IRC(object):
             if self._password:
                 self.send('PASS {0}'.format(self._password))
         
-            self.send('NICK {0}'.format(self.user.nick))
-            self.send('USER {0} 0 * :{0}'.format(self.user.real))
+            self.send('NICK {0}'.format(self._nick))
+            self.send('USER {0} 0 * :{0}'.format(self._real))
 
         except socket.error as e:
             self.logger.critical('Failed to connect to {0}:{1}.'.format(host, port))
